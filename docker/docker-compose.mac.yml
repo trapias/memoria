@@ -1,0 +1,66 @@
+# MCP Memoria per Mac (senza Ollama)
+# Usa Ollama installato nativamente sul Mac per migliori performance GPU/Metal
+#
+# Prerequisiti:
+#   - Ollama installato: brew install ollama
+#   - Ollama in esecuzione: ollama serve
+#   - Modello scaricato: ollama pull nomic-embed-text
+#
+# Uso:
+#   cd docker && docker-compose -f docker-compose.mac.yml up -d
+
+services:
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: memoria-qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # MCP Memoria Server
+  memoria:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: memoria-server
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      # Qdrant nel container
+      - MEMORIA_QDRANT_HOST=qdrant
+      - MEMORIA_QDRANT_PORT=6333
+      # Ollama sull'host Mac (host.docker.internal risolve all'IP dell'host)
+      - MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434
+      - MEMORIA_EMBEDDING_MODEL=nomic-embed-text
+      - MEMORIA_LOG_LEVEL=INFO
+    volumes:
+      - memoria_cache:/data/cache
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    # Extra host per assicurare la risoluzione (opzionale su Docker Desktop)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  qdrant_data:
+    driver: local
+  memoria_cache:
+    driver: local
+
+networks:
+  default:
+    name: memoria-network
