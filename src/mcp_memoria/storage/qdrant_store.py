@@ -144,7 +144,6 @@ class QdrantStore:
         return {
             "name": name,
             "points_count": info.points_count,
-            "vectors_count": info.vectors_count,
             "indexed_vectors_count": info.indexed_vectors_count,
             "status": info.status.value,
         }
@@ -246,16 +245,16 @@ class QdrantStore:
         if filter_conditions:
             qdrant_filter = self._build_filter(filter_conditions)
 
-        results = self.client.search(
+        response = self.client.query_points(
             collection_name=collection,
-            query_vector=vector,
+            query=vector,
             limit=limit,
             score_threshold=score_threshold,
             query_filter=qdrant_filter,
             with_vectors=with_vectors,
         )
 
-        return [self._scored_point_to_result(r) for r in results]
+        return [self._scored_point_to_result(r) for r in response.points]
 
     async def get(
         self,

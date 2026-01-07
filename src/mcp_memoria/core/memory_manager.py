@@ -50,18 +50,18 @@ class MemoryManager:
         # Use server mode if host is set, otherwise local mode
         qdrant_path = None if self.settings.qdrant_host else self.settings.qdrant_path
 
-        self.store = QdrantStore(
+        self.vector_store = QdrantStore(
             path=qdrant_path,
             host=self.settings.qdrant_host,
             port=self.settings.qdrant_port,
             vector_size=self.settings.embedding_dimensions,
         )
         self.collections = CollectionManager(
-            store=self.store,
+            store=self.vector_store,
             vector_size=self.settings.embedding_dimensions,
         )
-        self.consolidator = MemoryConsolidator(store=self.store)
-        self.backup = MemoryBackup(store=self.store, collection_manager=self.collections)
+        self.consolidator = MemoryConsolidator(store=self.vector_store)
+        self.backup = MemoryBackup(store=self.vector_store, collection_manager=self.collections)
 
     def _init_embeddings(self) -> None:
         """Initialize embedding components."""
@@ -150,7 +150,7 @@ class MemoryManager:
         result = await self.embedder.embed(content, text_type="document")
 
         # Store in Qdrant
-        await self.store.upsert(
+        await self.vector_store.upsert(
             collection=memory_type.value,
             vector=result.embedding,
             payload=memory.to_payload(),
@@ -207,7 +207,7 @@ class MemoryManager:
 
         for memory_type in memory_types:
             # Search in collection
-            search_results = await self.store.search(
+            search_results = await self.vector_store.search(
                 collection=memory_type.value,
                 vector=result.embedding,
                 limit=limit,
@@ -309,7 +309,7 @@ class MemoryManager:
 
             results = []
             for collection in collections:
-                scroll_results, _ = await self.store.scroll(
+                scroll_results, _ = await self.vector_store.scroll(
                     collection=collection,
                     limit=limit,
                     filter_conditions=filters if filters else None,
@@ -348,7 +348,7 @@ class MemoryManager:
             return MemoryItem.from_payload(memory_id, cached["memory"])
 
         # Get from store
-        results = await self.store.get(collection=memory_type.value, ids=[memory_id])
+        results = await self.vector_store.get(collection=memory_type.value, ids=[memory_id])
 
         if results:
             memory = MemoryItem.from_payload(results[0].id, results[0].payload)
@@ -394,7 +394,7 @@ class MemoryManager:
             result = await self.embedder.embed(content, text_type="document")
 
             # Update with new vector
-            await self.store.upsert(
+            await self.vector_store.upsert(
                 collection=memory_type.value,
                 vector=result.embedding,
                 payload={**existing.to_payload(), "content": content, **update_payload},
@@ -408,7 +408,7 @@ class MemoryManager:
             if metadata:
                 update_payload.update(metadata)
 
-            await self.store.update_payload(
+            await self.vector_store.update_payload(
                 collection=memory_type.value,
                 id=memory_id,
                 payload=update_payload,
@@ -444,7 +444,7 @@ class MemoryManager:
             if isinstance(memory_type, str):
                 memory_type = MemoryType(memory_type)
 
-            deleted = await self.store.delete(
+            deleted = await self.vector_store.delete(
                 collection=memory_type.value,
                 ids=memory_ids,
             )
@@ -463,7 +463,7 @@ class MemoryManager:
             )
 
             for collection in collections:
-                deleted = await self.store.delete(
+                deleted = await self.vector_store.delete(
                     collection=collection,
                     filter_conditions=filters,
                 )
