@@ -135,7 +135,7 @@ Before using Memoria, ensure the services are running:
 
 ```bash
 # 1. Check Qdrant is running
-curl http://localhost:6333/health
+curl http://localhost:6333/healthz
 
 # 2. Check Ollama is running and has the model
 ollama list | grep nomic-embed-text
@@ -365,8 +365,8 @@ For skills and procedures:
 
 1. **Check Qdrant is running**:
    ```bash
-   curl http://localhost:6333/health
-   # Should return: {"status":"ok"}
+   curl http://localhost:6333/healthz
+   # Should return: healthz check passed
    ```
 
 2. **Check Ollama is running**:
