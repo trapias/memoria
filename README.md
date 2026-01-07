@@ -22,28 +22,49 @@ MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, u
 ### Prerequisites
 
 - Python 3.11+
-- [Ollama](https://ollama.com/download)
-- (Optional) Docker for containerized deployment
+- [Ollama](https://ollama.com/download) with `nomic-embed-text` model
+- (Optional) Docker for Qdrant containerized deployment
 
 ### Installation
 
+#### Option A: Automated (Recommended)
+
 ```bash
 # Clone the repository
-cd /home/alberto/dev/Memoria
+git clone https://github.com/yourusername/mcp-memoria.git
+cd mcp-memoria
 
-# Run installation script
+# Run installation script (installs Ollama, model, and dependencies)
 ./scripts/install.sh
 ```
 
-Or manually:
+#### Option B: Manual Installation
 
 ```bash
-# Install Ollama and pull embedding model
+# 1. Install Ollama (skip if already installed)
+# macOS
+brew install ollama
+
+# Linux
 curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. Start Ollama and pull the embedding model
+ollama serve  # Run in background or separate terminal
 ollama pull nomic-embed-text
 
-# Install MCP Memoria
+# 3. Install MCP Memoria
+git clone https://github.com/yourusername/mcp-memoria.git
+cd mcp-memoria
 pip install -e .
+
+# 4. Start Qdrant (choose one option)
+
+# Option 4a: Using Docker (recommended)
+cd docker
+docker-compose -f docker-compose.qdrant-only.yml up -d
+
+# Option 4b: Local storage (no Docker needed)
+# Just configure MEMORIA_QDRANT_PATH in Claude config
 ```
 
 ### Configure Claude Code
@@ -106,23 +127,38 @@ Add to your Claude Desktop config:
 
 ## Usage
 
-Once configured, Claude will have access to these tools:
+Once configured, Claude will have access to memory tools. You can interact naturally - Claude will automatically use the appropriate memory tools based on your requests.
 
-### Store Memories
+### Verify Installation
+
+Before using Memoria, ensure the services are running:
+
+```bash
+# 1. Check Qdrant is running
+curl http://localhost:6333/health
+
+# 2. Check Ollama is running and has the model
+ollama list | grep nomic-embed-text
+
+# 3. Start Claude in any project directory
+cd /path/to/your/project
+claude
+```
+
+### Quick Test Commands
+
+Try these commands in Claude to verify Memoria is working:
 
 ```
-Store this fact: The project uses FastAPI with PostgreSQL
+# Check system status
+Show me the memoria stats
+
+# Store a test memory
+Remember this: The project uses Python 3.11 and FastAPI
+
+# Recall memories
+What do you remember about this project?
 ```
-
-Claude will use `memoria_store` to save this as a semantic memory.
-
-### Recall Memories
-
-```
-What database does this project use?
-```
-
-Claude will use `memoria_recall` to find relevant memories.
 
 ### Available Tools
 
@@ -138,6 +174,84 @@ Claude will use `memoria_recall` to find relevant memories.
 | `memoria_import` | Import memories from file |
 | `memoria_stats` | View system statistics |
 | `memoria_set_context` | Set current project/file context |
+
+### Example Interactions
+
+#### Storing Different Memory Types
+
+**Semantic memories** (facts and knowledge):
+```
+Remember that the API endpoint for users is /api/v1/users
+Store this: The database password is rotated every 30 days
+```
+
+**Episodic memories** (events and experiences):
+```
+Log this event: Deployed version 2.1.0 to production today
+Remember that we had a meeting about the new auth system
+```
+
+**Procedural memories** (how-to and workflows):
+```
+Save this procedure: To deploy, run ./scripts/deploy.sh --env prod
+Remember the steps to set up the dev environment
+```
+
+#### Recalling Memories
+
+```
+# Semantic search - finds relevant memories by meaning
+What do you know about the database?
+How do we handle authentication?
+
+# With filters
+Search memories about deployment from last week
+Find all procedural memories about testing
+```
+
+#### Project Context
+
+Set context to associate memories with a specific project:
+
+```
+Set the project context to "ecommerce-api"
+Now remember that this project uses Stripe for payments
+```
+
+Later, when working on the same project:
+```
+What do you remember about the ecommerce-api project?
+```
+
+#### Memory Management
+
+```
+# Update a memory
+Update memory [id] to include the new API version
+
+# Delete memories
+Delete all memories about the old authentication system
+Forget the deprecated deployment process
+
+# Consolidate similar memories
+Consolidate memories to merge duplicates
+
+# Export/Import
+Export all memories to backup.json
+Import memories from shared-knowledge.json
+```
+
+### Tips for Effective Use
+
+1. **Be specific**: "Remember the PostgreSQL connection string is postgres://..." is better than "Remember the database info"
+
+2. **Use context**: Set project context when working on specific projects to keep memories organized
+
+3. **Regular consolidation**: Run consolidation periodically to merge similar memories and reduce redundancy
+
+4. **Importance levels**: Mention importance for critical information: "This is important: never delete the production database"
+
+5. **Natural language**: You don't need special syntax - just talk naturally about what you want to remember or recall
 
 ## Docker Deployment
 
@@ -241,6 +355,78 @@ For skills and procedures:
 ├─────────────────────────────────────┤
 │  Ollama (embeddings) │ Qdrant (vectors)│
 └─────────────────────────────────────┘
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### "Failed to connect" when starting Claude
+
+1. **Check Qdrant is running**:
+   ```bash
+   curl http://localhost:6333/health
+   # Should return: {"status":"ok"}
+   ```
+
+2. **Check Ollama is running**:
+   ```bash
+   curl http://localhost:11434/api/tags
+   # Should return list of models
+   ```
+
+3. **Verify the embedding model is installed**:
+   ```bash
+   ollama pull nomic-embed-text
+   ```
+
+#### "Connection refused" errors
+
+- Ensure Qdrant is accessible on port 6333
+- For Docker setups, verify the network configuration
+- Check firewall settings if running on remote servers
+
+#### Memories not being found
+
+- Run `memoria_stats` to verify memories are being stored
+- Check that the embedding model is working: memories require embeddings for semantic search
+- Try consolidating memories if you have many similar entries
+
+#### Slow performance
+
+- The first query may be slow as models are loaded into memory
+- Ensure Ollama is using GPU acceleration if available
+- Consider using a smaller embedding model for faster results
+
+### Debug Mode
+
+Enable debug logging for more information:
+
+```bash
+# Set environment variable before starting
+export MEMORIA_LOG_LEVEL=DEBUG
+```
+
+Or in Claude config:
+```json
+{
+  "env": {
+    "MEMORIA_LOG_LEVEL": "DEBUG"
+  }
+}
+```
+
+### Reset All Data
+
+To completely reset Memoria and start fresh:
+
+```bash
+# If using local Qdrant storage
+rm -rf ~/.mcp-memoria/qdrant
+
+# If using Docker Qdrant
+docker-compose -f docker-compose.qdrant-only.yml down -v
+docker-compose -f docker-compose.qdrant-only.yml up -d
 ```
 
 ## Development
