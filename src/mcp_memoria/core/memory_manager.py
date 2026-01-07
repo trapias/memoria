@@ -47,8 +47,11 @@ class MemoryManager:
 
     def _init_storage(self) -> None:
         """Initialize storage components."""
+        # Use server mode if host is set, otherwise local mode
+        qdrant_path = None if self.settings.qdrant_host else self.settings.qdrant_path
+
         self.store = QdrantStore(
-            path=self.settings.qdrant_path,
+            path=qdrant_path,
             host=self.settings.qdrant_host,
             port=self.settings.qdrant_port,
             vector_size=self.settings.embedding_dimensions,
