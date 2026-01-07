@@ -1,0 +1,72 @@
+# MCP Memoria Stack - CPU Only (no GPU)
+# Use this if you don't have an NVIDIA GPU
+
+services:
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: memoria-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Ollama for local embeddings (CPU only)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: memoria-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /bin/ollama serve &
+        sleep 5
+        /bin/ollama pull nomic-embed-text
+        wait
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    # No GPU resources for CPU-only mode
+
+  # MCP Memoria Server
+  memoria:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: memoria-server
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      - MEMORIA_QDRANT_HOST=qdrant
+      - MEMORIA_QDRANT_PORT=6333
+      - MEMORIA_OLLAMA_HOST=http://ollama:11434
+      - MEMORIA_EMBEDDING_MODEL=nomic-embed-text
+      - MEMORIA_LOG_LEVEL=INFO
+    volumes:
+      - memoria_cache:/data/cache
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:
+  ollama_data:
+  memoria_cache:
