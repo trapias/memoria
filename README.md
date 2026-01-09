@@ -255,6 +255,117 @@ Import memories from shared-knowledge.json
 
 ## Docker Deployment
 
+### Recommended Setup: Dockerized Memoria with Persistent Qdrant
+
+This setup runs Qdrant persistently via docker-compose, while each Claude Code session spawns its own ephemeral Memoria container. This provides:
+
+- **Persistent storage**: Qdrant keeps all memories across sessions
+- **Clean sessions**: Each Claude instance gets a fresh Memoria container (removed on exit)
+- **Native GPU**: Ollama runs on your Mac with Metal acceleration
+
+#### Step 1: Start Qdrant (one-time setup)
+
+```bash
+cd docker
+docker-compose -f docker-compose.qdrant-only.yml up -d
+```
+
+This creates:
+- `memoria-qdrant` container (persistent)
+- `memoria-network` Docker network
+- `qdrant_data` volume for persistent storage
+
+#### Step 2: Build the Memoria Image
+
+```bash
+cd docker
+docker build -t docker-memoria .
+```
+
+#### Step 3: Configure Claude Code
+
+Add to your Claude Code MCP configuration (`~/.claude.json` or project settings):
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--network", "memoria-network",
+        "-e", "MEMORIA_QDRANT_HOST=memoria-qdrant",
+        "-e", "MEMORIA_QDRANT_PORT=6333",
+        "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
+        "-e", "MEMORIA_LOG_LEVEL=WARNING",
+        "docker-memoria"
+      ]
+    }
+  }
+}
+```
+
+**Flags explained**:
+- `--rm`: Remove container when Claude session ends
+- `-i`: Interactive mode for MCP stdio communication
+- `--network memoria-network`: Connect to Qdrant's network
+
+#### Environment Variables
+
+| Variable | Value | Why |
+|----------|-------|-----|
+| `MEMORIA_QDRANT_HOST` | `memoria-qdrant` | Container name on Docker network (NOT `localhost`) |
+| `MEMORIA_QDRANT_PORT` | `6333` | Qdrant's default port |
+| `MEMORIA_OLLAMA_HOST` | `http://host.docker.internal:11434` | Special Docker DNS to reach host's native Ollama |
+
+> **Note**: Inside a Docker container, `localhost` refers to the container itself. Use container names for inter-container communication on the same Docker network.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Your Mac/Host                         │
+│                                                          │
+│  ┌─────────────┐                                        │
+│  │   Ollama    │◀─── host.docker.internal:11434         │
+│  │  (native)   │     (Metal GPU acceleration)           │
+│  └─────────────┘                                        │
+│                                                          │
+│  ┌────────────────── memoria-network ─────────────────┐ │
+│  │                                                     │ │
+│  │  ┌──────────────────┐    ┌──────────────────────┐  │ │
+│  │  │  docker-memoria  │───▶│    memoria-qdrant    │  │ │
+│  │  │   (ephemeral)    │    │    (persistent)      │  │ │
+│  │  │   per session    │    │    via compose       │  │ │
+│  │  └──────────────────┘    └──────────────────────┘  │ │
+│  │           │                       │                │ │
+│  └───────────┼───────────────────────┼────────────────┘ │
+│              │                       │                  │
+│              ▼                       ▼                  │
+│     host.docker.internal      qdrant_data volume       │
+│                                (persistent)             │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Managing the Setup
+
+```bash
+# Check Qdrant status
+docker-compose -f docker-compose.qdrant-only.yml ps
+
+# View Qdrant logs
+docker-compose -f docker-compose.qdrant-only.yml logs -f
+
+# Stop Qdrant (memories preserved in volume)
+docker-compose -f docker-compose.qdrant-only.yml down
+
+# Reset all memories (destructive!)
+docker-compose -f docker-compose.qdrant-only.yml down -v
+```
+
 ### macOS (with native Ollama)
 
 If you have Ollama installed natively on your Mac (recommended for Metal GPU acceleration):
