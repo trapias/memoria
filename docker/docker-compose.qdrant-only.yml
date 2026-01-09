@@ -3,6 +3,8 @@
 # Uso:
 #   cd docker && docker-compose -f docker-compose.qdrant-only.yml up -d
 
+name: memoria
+
 services:
   qdrant:
     image: qdrant/qdrant:latest
