@@ -72,19 +72,23 @@ class MemoryItem(BaseModel):
         }
         metadata = {k: v for k, v in payload.items() if k not in known_fields}
 
+        def parse_datetime(value: Any) -> datetime:
+            """Parse datetime from various formats."""
+            if value is None:
+                return datetime.now()
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, str):
+                return datetime.fromisoformat(value)
+            return datetime.now()
+
         return cls(
             id=id,
             content=payload.get("content", ""),
             memory_type=MemoryType(payload.get("memory_type", "episodic")),
-            created_at=datetime.fromisoformat(payload["created_at"])
-            if "created_at" in payload
-            else datetime.now(),
-            updated_at=datetime.fromisoformat(payload["updated_at"])
-            if "updated_at" in payload
-            else datetime.now(),
-            accessed_at=datetime.fromisoformat(payload["accessed_at"])
-            if "accessed_at" in payload
-            else datetime.now(),
+            created_at=parse_datetime(payload.get("created_at")),
+            updated_at=parse_datetime(payload.get("updated_at")),
+            accessed_at=parse_datetime(payload.get("accessed_at")),
             access_count=payload.get("access_count", 0),
             importance=payload.get("importance", 0.5),
             tags=payload.get("tags", []),
