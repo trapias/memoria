@@ -7,6 +7,24 @@ from mcp_memoria.core.memory_manager import MemoryManager
 from mcp_memoria.core.memory_types import RecallResult
 
 
+def _parse_date(value: str | datetime | None) -> datetime | None:
+    """Safely parse date from string or datetime.
+
+    Args:
+        value: Date value (string, datetime, or None)
+
+    Returns:
+        datetime or None
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    return None
+
+
 class SearchMemoryTool:
     """Tool for advanced memory search with filters."""
 
@@ -34,8 +52,8 @@ class SearchMemoryTool:
             query: Optional semantic query
             memory_type: Filter by type
             tags: Filter by tags
-            date_from: Filter by date range start (ISO format)
-            date_to: Filter by date range end (ISO format)
+            date_from: Filter by date range start (ISO format or datetime)
+            date_to: Filter by date range end (ISO format or datetime)
             importance_min: Minimum importance
             project: Filter by project
             limit: Maximum results
@@ -44,8 +62,8 @@ class SearchMemoryTool:
         Returns:
             List of RecallResults
         """
-        parsed_date_from = datetime.fromisoformat(date_from) if date_from else None
-        parsed_date_to = datetime.fromisoformat(date_to) if date_to else None
+        parsed_date_from = _parse_date(date_from)
+        parsed_date_to = _parse_date(date_to)
 
         return await self.memory_manager.search(
             query=query,

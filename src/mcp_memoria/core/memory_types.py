@@ -59,6 +59,9 @@ class MemoryItem(BaseModel):
         Returns:
             MemoryItem instance
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         # Extract known fields
         known_fields = {
             "content",
@@ -72,28 +75,39 @@ class MemoryItem(BaseModel):
         }
         metadata = {k: v for k, v in payload.items() if k not in known_fields}
 
-        def parse_datetime(value: Any) -> datetime:
+        def parse_datetime(value: Any, field_name: str = "unknown") -> datetime:
             """Parse datetime from various formats."""
-            if value is None:
+            try:
+                if value is None:
+                    return datetime.now()
+                if isinstance(value, datetime):
+                    return value
+                if isinstance(value, str):
+                    return datetime.fromisoformat(value)
+                # Log unexpected type
+                logger.error(f"Unexpected type for {field_name}: {type(value).__name__} = {value!r}")
                 return datetime.now()
-            if isinstance(value, datetime):
-                return value
-            if isinstance(value, str):
-                return datetime.fromisoformat(value)
-            return datetime.now()
+            except Exception as e:
+                logger.error(f"Error parsing {field_name}: {type(value).__name__} = {value!r}, error: {e}")
+                raise
 
-        return cls(
-            id=id,
-            content=payload.get("content", ""),
-            memory_type=MemoryType(payload.get("memory_type", "episodic")),
-            created_at=parse_datetime(payload.get("created_at")),
-            updated_at=parse_datetime(payload.get("updated_at")),
-            accessed_at=parse_datetime(payload.get("accessed_at")),
-            access_count=payload.get("access_count", 0),
-            importance=payload.get("importance", 0.5),
-            tags=payload.get("tags", []),
-            metadata=metadata,
-        )
+        try:
+            return cls(
+                id=id,
+                content=payload.get("content", ""),
+                memory_type=MemoryType(payload.get("memory_type", "episodic")),
+                created_at=parse_datetime(payload.get("created_at"), "created_at"),
+                updated_at=parse_datetime(payload.get("updated_at"), "updated_at"),
+                accessed_at=parse_datetime(payload.get("accessed_at"), "accessed_at"),
+                access_count=payload.get("access_count", 0),
+                importance=payload.get("importance", 0.5),
+                tags=payload.get("tags", []),
+                metadata=metadata,
+            )
+        except Exception as e:
+            logger.error(f"Error creating MemoryItem from payload: {e}")
+            logger.error(f"Payload field types: {[(k, type(v).__name__) for k, v in payload.items()]}")
+            raise
 
     def touch(self) -> None:
         """Update access timestamp and count."""

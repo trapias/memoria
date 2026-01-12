@@ -157,10 +157,10 @@ class MemoryManager:
             id=memory.id,
         )
 
-        # Cache in working memory
+        # Cache in working memory (use mode='json' to serialize datetimes to ISO strings)
         self.working_memory.cache_memory(
             memory.id,
-            {"memory": memory.model_dump(), "vector": result.embedding},
+            {"memory": memory.model_dump(mode='json'), "vector": result.embedding},
         )
 
         # Log action
@@ -345,14 +345,24 @@ class MemoryManager:
         # Check working memory cache first
         cached = self.working_memory.get_cached_memory(memory_id)
         if cached:
-            return MemoryItem.from_payload(memory_id, cached["memory"])
+            try:
+                return MemoryItem.from_payload(memory_id, cached["memory"])
+            except Exception as e:
+                logger.error(f"Error parsing cached memory {memory_id}: {e}")
+                logger.error(f"Cache data types: {[(k, type(v).__name__) for k, v in cached['memory'].items()]}")
+                raise
 
         # Get from store
         results = await self.vector_store.get(collection=memory_type.value, ids=[memory_id])
 
         if results:
-            memory = MemoryItem.from_payload(results[0].id, results[0].payload)
-            return memory
+            try:
+                memory = MemoryItem.from_payload(results[0].id, results[0].payload)
+                return memory
+            except Exception as e:
+                logger.error(f"Error parsing Qdrant memory {results[0].id}: {e}")
+                logger.error(f"Payload types: {[(k, type(v).__name__) for k, v in results[0].payload.items()]}")
+                raise
 
         return None
 
