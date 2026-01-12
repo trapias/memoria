@@ -1,12 +1,12 @@
 [project]
 name = "mcp-memoria"
-version = "1.0.1"
+version = "1.0.2"
 description = "MCP server for unlimited local AI memory using Qdrant and Ollama"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [
-    { name = "Alberto", email = "alberto@example.com" }
+    { name = "Alberto Velo", email = "trapias@gmail.com" }
 ]
 keywords = ["mcp", "memory", "ai", "qdrant", "ollama", "claude", "llm"]
 classifiers = [

@@ -13,6 +13,25 @@ from mcp_memoria.storage.qdrant_store import QdrantStore, SearchResult
 logger = logging.getLogger(__name__)
 
 
+def parse_datetime(value: Any) -> datetime:
+    """Parse datetime from various formats safely.
+
+    Args:
+        value: Value to parse (string, datetime, or None)
+
+    Returns:
+        datetime object
+    """
+    if value is None:
+        return datetime.now()
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    # Fallback for any other type
+    return datetime.now()
+
+
 @dataclass
 class ConsolidationResult:
     """Result of a consolidation operation."""
@@ -204,12 +223,10 @@ class MemoryConsolidator:
                 # Check if should forget
                 accessed_at = result.payload.get("accessed_at")
                 if accessed_at:
-                    accessed = datetime.fromisoformat(accessed_at)
+                    accessed = parse_datetime(accessed_at)
                 else:
                     created_at = result.payload.get("created_at")
-                    accessed = (
-                        datetime.fromisoformat(created_at) if created_at else datetime.now()
-                    )
+                    accessed = parse_datetime(created_at)
 
                 importance = result.payload.get("importance", 0.5)
                 access_count = result.payload.get("access_count", 0)
@@ -277,7 +294,7 @@ class MemoryConsolidator:
                 if not accessed_at:
                     continue
 
-                accessed = datetime.fromisoformat(accessed_at)
+                accessed = parse_datetime(accessed_at)
                 if accessed >= cutoff:
                     continue
 
