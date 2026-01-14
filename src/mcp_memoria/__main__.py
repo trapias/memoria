@@ -13,11 +13,23 @@ def main() -> None:
     settings = get_settings()
 
     # Configure logging
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    log_level = getattr(logging, settings.log_level)
+
+    # Always log to stderr (MCP uses stdout for protocol)
     logging.basicConfig(
-        level=getattr(logging, settings.log_level),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        stream=sys.stderr,  # MCP uses stdout for protocol
+        level=log_level,
+        format=log_format,
+        stream=sys.stderr,
     )
+
+    # Optionally also log to file
+    if settings.log_file:
+        settings.log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(settings.log_file)
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(logging.Formatter(log_format))
+        logging.getLogger().addHandler(file_handler)
 
     logger = logging.getLogger("mcp_memoria")
     logger.info("Starting MCP Memoria server...")

@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level",
     )
+    log_file: Path | None = Field(
+        default=None,
+        description="Log file path (if set, logs are written to file in addition to stderr)",
+    )
 
     def ensure_directories(self) -> None:
         """Create necessary directories if they don't exist."""

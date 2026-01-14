@@ -421,7 +421,8 @@ Environment variables:
 | `MEMORIA_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `MEMORIA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model |
 | `MEMORIA_CACHE_ENABLED` | `true` | Enable embedding cache |
-| `MEMORIA_LOG_LEVEL` | `INFO` | Logging level |
+| `MEMORIA_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `MEMORIA_LOG_FILE` | - | Path to log file (logs to file in addition to stderr) |
 
 ## Memory Types
 
@@ -523,6 +524,47 @@ Or in Claude config:
 {
   "env": {
     "MEMORIA_LOG_LEVEL": "DEBUG"
+  }
+}
+```
+
+### File Logging
+
+By default, Memoria logs to stderr (required for MCP protocol). You can additionally log to a file for persistent debugging or auditing:
+
+```bash
+# Log to a specific file
+export MEMORIA_LOG_FILE=~/.mcp-memoria/logs/memoria.log
+```
+
+Or in Claude config:
+```json
+{
+  "env": {
+    "MEMORIA_LOG_FILE": "/Users/yourname/.mcp-memoria/logs/memoria.log"
+  }
+}
+```
+
+**Notes:**
+- The log directory will be created automatically if it doesn't exist
+- File logging is **in addition to** stderr logging (both outputs are active)
+- Useful for debugging issues that occur during Claude sessions
+- Combine with `MEMORIA_LOG_LEVEL=DEBUG` for detailed diagnostics
+
+**Example: Full debug configuration**
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "python",
+      "args": ["-m", "mcp_memoria"],
+      "env": {
+        "MEMORIA_QDRANT_HOST": "localhost",
+        "MEMORIA_LOG_LEVEL": "DEBUG",
+        "MEMORIA_LOG_FILE": "/Users/yourname/.mcp-memoria/logs/memoria.log"
+      }
+    }
   }
 }
 ```
