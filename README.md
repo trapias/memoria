@@ -410,6 +410,74 @@ This starts:
 - Ollama with embedding models
 - MCP Memoria server
 
+## Multi-Node Sync
+
+If you run Qdrant on multiple machines (e.g., a Mac and a Linux server), you can keep them synchronized using the included sync script.
+
+### How It Works
+
+The sync script (`scripts/sync_qdrant.py`) performs **incremental bidirectional synchronization**:
+
+- **New memories**: Copied to the other node
+- **Updated memories**: Newer timestamp wins
+- **Deleted memories**: Propagated to the other node
+
+The script tracks the last sync timestamp in `~/.mcp-memoria/sync_state.json` to determine what's new vs. what's been deleted.
+
+### Configuration
+
+Edit the script to set your node addresses:
+
+```python
+LOCAL_URL = "http://localhost:6333"
+REMOTE_URL = "http://your-server.local:6333"  # Your remote hostname
+REMOTE_IP = "192.168.1.51"                    # Fallback IP if hostname doesn't resolve
+```
+
+### Usage
+
+```bash
+# Run sync
+python scripts/sync_qdrant.py
+
+# Dry run (show what would happen)
+python scripts/sync_qdrant.py --dry-run
+
+# Verbose output
+python scripts/sync_qdrant.py -v
+
+# Reset sync state (treat all as new, no deletions)
+python scripts/sync_qdrant.py --reset-state
+```
+
+### Scheduling
+
+You can schedule the sync using cron or launchd:
+
+**macOS (launchd)**:
+```xml
+<!-- ~/Library/LaunchAgents/com.memoria.sync.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.memoria.sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/path/to/scripts/sync_qdrant.py</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer> <!-- Every 5 minutes -->
+</dict>
+</plist>
+```
+
+**Linux (cron)**:
+```bash
+# Every 5 minutes
+*/5 * * * * /usr/bin/python3 /path/to/scripts/sync_qdrant.py >> ~/.mcp-memoria/sync.log 2>&1
+```
+
 ## Configuration
 
 Environment variables:

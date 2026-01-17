@@ -87,3 +87,8 @@ temp/
 # Local planning files
 PLAN.md
 CLAUDE.md
+.CLAUDE.md
+
+# Local docs and testing (not for GitHub)
+docs/
+Testing/
