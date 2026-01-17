@@ -452,11 +452,16 @@ python scripts/sync_qdrant.py --reset-state
 
 ### Scheduling
 
-You can schedule the sync using cron or launchd:
+You can schedule the sync to run automatically using cron (Linux) or launchd (macOS).
 
-**macOS (launchd)**:
-```xml
-<!-- ~/Library/LaunchAgents/com.memoria.sync.plist -->
+#### macOS (launchd)
+
+1. **Create the plist file**:
+
+```bash
+cat > ~/Library/LaunchAgents/com.memoria.sync.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
@@ -464,18 +469,54 @@ You can schedule the sync using cron or launchd:
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/path/to/scripts/sync_qdrant.py</string>
+        <string>/path/to/mcp-memoria/scripts/sync_qdrant.py</string>
     </array>
     <key>StartInterval</key>
-    <integer>300</integer> <!-- Every 5 minutes -->
+    <integer>300</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/memoria-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/memoria-sync.log</string>
+    <key>RunAtLoad</key>
+    <true/>
 </dict>
 </plist>
+EOF
 ```
 
-**Linux (cron)**:
+2. **Edit the plist** to set the correct path to `sync_qdrant.py`
+
+3. **Load the agent**:
+
 ```bash
-# Every 5 minutes
-*/5 * * * * /usr/bin/python3 /path/to/scripts/sync_qdrant.py >> ~/.mcp-memoria/sync.log 2>&1
+launchctl load ~/Library/LaunchAgents/com.memoria.sync.plist
+```
+
+4. **Manage the agent**:
+
+```bash
+# Check status
+launchctl list | grep memoria
+
+# Stop the agent
+launchctl unload ~/Library/LaunchAgents/com.memoria.sync.plist
+
+# Restart after editing
+launchctl unload ~/Library/LaunchAgents/com.memoria.sync.plist
+launchctl load ~/Library/LaunchAgents/com.memoria.sync.plist
+
+# View logs
+tail -f /tmp/memoria-sync.log
+```
+
+#### Linux (cron)
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add this line (runs every 5 minutes)
+*/5 * * * * /usr/bin/python3 /path/to/mcp-memoria/scripts/sync_qdrant.py >> ~/.mcp-memoria/sync.log 2>&1
 ```
 
 ## Configuration
