@@ -127,16 +127,23 @@ def get_all_points(url: str, collection: str) -> dict[str, dict]:
 
 
 def parse_timestamp(value: Any) -> datetime | None:
-    """Parse timestamp from various formats."""
+    """Parse timestamp from various formats. Always returns timezone-aware datetime (UTC)."""
     if value is None:
         return None
     if isinstance(value, datetime):
+        # Ensure datetime is timezone-aware
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
         return value
     if isinstance(value, str):
         try:
             if value.endswith('Z'):
                 value = value[:-1] + '+00:00'
-            return datetime.fromisoformat(value)
+            dt = datetime.fromisoformat(value)
+            # Ensure parsed datetime is timezone-aware
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
         except ValueError:
             return None
     return None
