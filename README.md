@@ -13,6 +13,8 @@ MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, u
   - **Semantic**: Facts, knowledge, concepts
   - **Procedural**: Procedures, workflows, learned skills
 - **Semantic Search**: Find relevant memories by meaning, not just keywords
+- **Full-Text Match**: Filter results by exact keyword presence in content
+- **Content Chunking**: Long memories are automatically split into chunks for higher-quality embeddings; results are transparently deduplicated
 - **Memory Consolidation**: Automatic merging of similar memories
 - **Forgetting Curve**: Natural decay of unused, low-importance memories
 - **Export/Import**: Backup and share your memories
@@ -165,8 +167,8 @@ What do you remember about this project?
 | Tool | Description |
 |------|-------------|
 | `memoria_store` | Store new memories |
-| `memoria_recall` | Recall memories by semantic similarity |
-| `memoria_search` | Advanced search with filters |
+| `memoria_recall` | Recall memories by semantic similarity (supports `text_match` keyword filter) |
+| `memoria_search` | Advanced search with filters (supports `text_match` keyword filter) |
 | `memoria_update` | Update existing memories |
 | `memoria_delete` | Delete memories |
 | `memoria_consolidate` | Merge similar memories |
@@ -530,6 +532,8 @@ Environment variables:
 | `MEMORIA_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `MEMORIA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model |
 | `MEMORIA_CACHE_ENABLED` | `true` | Enable embedding cache |
+| `MEMORIA_CHUNK_SIZE` | `500` | Max characters per chunk (long content is split automatically) |
+| `MEMORIA_CHUNK_OVERLAP` | `50` | Overlap characters between consecutive chunks |
 | `MEMORIA_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `MEMORIA_LOG_FILE` | - | Path to log file (logs to file in addition to stderr) |
 
@@ -556,6 +560,21 @@ For skills and procedures:
 - Testing procedures
 - Common code patterns
 
+## Content Chunking
+
+When a memory exceeds `MEMORIA_CHUNK_SIZE` characters (default 500), it is automatically split into overlapping chunks. Each chunk is stored as a separate Qdrant point with its own embedding, linked to the original memory via a `parent_id`.
+
+**How it works:**
+
+- **Store**: long content → TextChunker → N chunks → N embeddings → N Qdrant points (same `parent_id`)
+- **Recall/Search**: query matches individual chunks; results are deduplicated by `parent_id`, returning the full original content
+- **Update**: content changes delete all existing chunks and re-create them; metadata-only changes propagate to every chunk
+- **Delete**: removes all points belonging to the logical memory
+- **Consolidate**: only operates on representative points (`chunk_index == 0`), ignoring sibling chunks
+- **Export/Import**: exports the full content once per logical memory, stripping chunk-specific fields
+
+Chunking is transparent — callers always see complete memories, never individual chunks.
+
 ## Architecture
 
 ```
@@ -574,7 +593,8 @@ For skills and procedures:
 │  │Episodic │ │Semantic │ │Procedur│ │
 │  └─────────┘ └─────────┘ └────────┘ │
 ├─────────────────────────────────────┤
-│  Ollama (embeddings) │ Qdrant (vectors)│
+│  TextChunker │ Ollama     │ Qdrant   │
+│  (splitting) │ (embed)    │ (vectors)│
 └─────────────────────────────────────┘
 ```
 

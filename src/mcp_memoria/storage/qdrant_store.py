@@ -12,6 +12,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     MatchAny,
+    MatchText,
     MatchValue,
     PointStruct,
     Range,
@@ -447,7 +448,15 @@ class QdrantStore:
         must_conditions = []
 
         for key, value in conditions.items():
-            if isinstance(value, dict):
+            if key == "__text_match":
+                # Full-text search on content field
+                must_conditions.append(
+                    FieldCondition(
+                        key="content",
+                        match=MatchText(text=value),
+                    )
+                )
+            elif isinstance(value, dict):
                 # Range filter
                 if "gte" in value or "lte" in value or "gt" in value or "lt" in value:
                     must_conditions.append(

@@ -22,6 +22,7 @@ class RecallMemoryTool:
         limit: int = 5,
         min_score: float = 0.5,
         filters: dict[str, Any] | None = None,
+        text_match: str | None = None,
     ) -> list[RecallResult]:
         """Recall relevant memories.
 
@@ -31,6 +32,7 @@ class RecallMemoryTool:
             limit: Maximum results
             min_score: Minimum similarity score
             filters: Additional filters
+            text_match: Optional keyword that must appear in content
 
         Returns:
             List of RecallResults
@@ -45,4 +47,5 @@ class RecallMemoryTool:
             limit=limit,
             min_score=min_score,
             filters=filters,
+            text_match=text_match,
         )

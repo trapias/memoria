@@ -99,13 +99,20 @@ class MemoryConsolidator:
 
         logger.info(f"Processing {len(all_memories)} memories for consolidation")
 
-        # Find similar groups
+        # Find similar groups — only consider representative points
         for memory in all_memories:
             if memory.id in processed_ids:
                 continue
 
             if not memory.vector:
                 continue
+
+            # Skip non-representative chunks (only process chunk_index==0 or non-chunked)
+            chunk_index = memory.payload.get("chunk_index", 0)
+            if chunk_index > 0:
+                continue
+
+            parent_id = memory.payload.get("parent_id", memory.id)
 
             # Find similar memories
             similar = await self.store.search(
@@ -115,8 +122,14 @@ class MemoryConsolidator:
                 score_threshold=similarity_threshold,
             )
 
-            # Filter out already processed
-            similar = [s for s in similar if s.id not in processed_ids and s.id != memory.id]
+            # Filter out: already processed, self, and chunks from the same parent
+            similar = [
+                s for s in similar
+                if s.id not in processed_ids
+                and s.id != memory.id
+                and s.payload.get("parent_id", s.id) != parent_id
+                and s.payload.get("chunk_index", 0) == 0
+            ]
 
             if similar:
                 # Merge similar memories
@@ -220,6 +233,10 @@ class MemoryConsolidator:
             )
 
             for result in results:
+                # Only operate on representative points (chunk_index==0 or non-chunked)
+                if result.payload.get("chunk_index", 0) > 0:
+                    continue
+
                 # Check if should forget
                 accessed_at = result.payload.get("accessed_at")
                 if accessed_at:
@@ -236,7 +253,8 @@ class MemoryConsolidator:
                     and importance < min_importance
                     and access_count < min_access_count
                 ):
-                    candidates.append(result.id)
+                    parent_id = result.payload.get("parent_id", result.id)
+                    candidates.append(parent_id)
 
             if not next_offset:
                 break
@@ -245,7 +263,18 @@ class MemoryConsolidator:
         logger.info(f"Found {len(candidates)} memories to forget")
 
         if not dry_run and candidates:
-            await self.store.delete(collection=collection, ids=candidates)
+            # Delete all points for each candidate parent_id
+            for parent_id in candidates:
+                # Delete by parent_id filter to remove all chunks
+                await self.store.delete(
+                    collection=collection,
+                    filter_conditions={"parent_id": parent_id},
+                )
+                # Also try deleting the direct ID (non-chunked legacy memories)
+                try:
+                    await self.store.delete(collection=collection, ids=[parent_id])
+                except Exception:
+                    pass
 
         duration = (datetime.now() - start_time).total_seconds()
 
@@ -338,9 +367,11 @@ class MemoryConsolidator:
     ) -> float:
         """Boost memory importance on access.
 
+        Propagates the boost to all chunks of the same parent memory.
+
         Args:
             collection: Collection name
-            memory_id: Memory ID
+            memory_id: Memory ID (point ID, may be a chunk)
             boost_amount: Amount to boost importance
             max_importance: Maximum importance value
 
@@ -353,16 +384,36 @@ class MemoryConsolidator:
 
         current = results[0].payload.get("importance", 0.5)
         new_importance = min(max_importance, current + boost_amount)
+        parent_id = results[0].payload.get("parent_id", memory_id)
 
+        boost_payload = {
+            "importance": new_importance,
+            "access_count": results[0].payload.get("access_count", 0) + 1,
+            "accessed_at": datetime.now().isoformat(),
+        }
+
+        # Update the accessed point
         await self.store.update_payload(
             collection=collection,
             id=memory_id,
-            payload={
-                "importance": new_importance,
-                "access_count": results[0].payload.get("access_count", 0) + 1,
-                "accessed_at": datetime.now().isoformat(),
-            },
+            payload=boost_payload,
             merge=True,
         )
+
+        # Propagate to sibling chunks (if any)
+        if results[0].payload.get("is_chunk", False):
+            siblings, _ = await self.store.scroll(
+                collection=collection,
+                limit=1000,
+                filter_conditions={"parent_id": parent_id},
+            )
+            for sibling in siblings:
+                if sibling.id != memory_id:
+                    await self.store.update_payload(
+                        collection=collection,
+                        id=sibling.id,
+                        payload=boost_payload,
+                        merge=True,
+                    )
 
         return new_importance

@@ -140,6 +140,10 @@ class CollectionManager:
             # Create payload indexes
             await self._create_payload_indexes(collection)
 
+        # Always attempt to create text and chunk indexes (idempotent via try/except)
+        await self.create_text_index(collection, field_name="content")
+        await self._create_chunk_indexes(collection)
+
         return created
 
     async def _create_payload_indexes(self, collection: MemoryCollection) -> None:
@@ -162,6 +166,28 @@ class CollectionManager:
             except Exception as e:
                 # Index might already exist
                 logger.debug(f"Index {field_name} on {collection.value}: {e}")
+
+    async def _create_chunk_indexes(self, collection: MemoryCollection) -> None:
+        """Create payload indexes for chunk-related fields.
+
+        Args:
+            collection: Collection type
+        """
+        chunk_indexes = {
+            "parent_id": PayloadSchemaType.KEYWORD,
+            "is_chunk": PayloadSchemaType.BOOL,
+            "chunk_index": PayloadSchemaType.INTEGER,
+        }
+        for field_name, field_type in chunk_indexes.items():
+            try:
+                self.store.client.create_payload_index(
+                    collection_name=collection.value,
+                    field_name=field_name,
+                    field_schema=field_type,
+                )
+                logger.debug(f"Created chunk index {field_name} on {collection.value}")
+            except Exception as e:
+                logger.debug(f"Chunk index {field_name} on {collection.value}: {e}")
 
     async def create_text_index(
         self,

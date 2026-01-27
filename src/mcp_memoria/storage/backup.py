@@ -271,6 +271,9 @@ class MemoryBackup:
     ) -> AsyncIterator[dict[str, Any]]:
         """Scroll through all memories in a collection.
 
+        Deduplicates chunked memories by parent_id, exporting full_content
+        and stripping chunk-specific fields.
+
         Args:
             collection: Collection name
             with_vectors: Include vectors
@@ -279,6 +282,7 @@ class MemoryBackup:
             Memory dicts
         """
         offset = None
+        seen_parents: set[str] = set()
 
         while True:
             results, next_offset = await self.store.scroll(
@@ -289,9 +293,24 @@ class MemoryBackup:
             )
 
             for result in results:
+                parent_id = result.payload.get("parent_id", result.id)
+
+                # Deduplicate: only export once per logical memory
+                if parent_id in seen_parents:
+                    continue
+                seen_parents.add(parent_id)
+
+                # Build clean payload: use full_content if available, strip chunk fields
+                payload = dict(result.payload)
+                if "full_content" in payload:
+                    payload["content"] = payload.pop("full_content")
+                # Remove chunk-specific fields from export
+                for chunk_field in ("is_chunk", "parent_id", "chunk_index", "chunk_count", "full_content"):
+                    payload.pop(chunk_field, None)
+
                 memory = {
-                    "id": result.id,
-                    "payload": result.payload,
+                    "id": parent_id,
+                    "payload": payload,
                 }
                 if with_vectors and result.vector:
                     memory["vector"] = result.vector

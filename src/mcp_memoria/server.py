@@ -109,6 +109,10 @@ class MemoriaServer:
                                 "default": 0.5,
                                 "description": "Minimum similarity score",
                             },
+                            "text_match": {
+                                "type": "string",
+                                "description": "Optional keyword that must appear in the memory content (full-text match)",
+                            },
                         },
                         "required": ["query"],
                     },
@@ -149,6 +153,10 @@ class MemoriaServer:
                                 "type": "string",
                                 "enum": ["relevance", "date", "importance", "access_count"],
                                 "default": "relevance",
+                            },
+                            "text_match": {
+                                "type": "string",
+                                "description": "Optional keyword that must appear in the memory content (full-text match)",
                             },
                         },
                     },
@@ -342,6 +350,7 @@ class MemoriaServer:
                 memory_types=args.get("memory_types"),
                 limit=args.get("limit", 5),
                 min_score=args.get("min_score", 0.5),
+                text_match=args.get("text_match"),
             )
 
             if not results:
@@ -366,6 +375,7 @@ class MemoriaServer:
                 project=args.get("project"),
                 limit=args.get("limit", 10),
                 sort_by=args.get("sort_by", "relevance"),
+                text_match=args.get("text_match"),
             )
 
             if not results:

@@ -45,6 +45,7 @@ class SearchMemoryTool:
         project: str | None = None,
         limit: int = 10,
         sort_by: str = "relevance",
+        text_match: str | None = None,
     ) -> list[RecallResult]:
         """Search memories with filters.
 
@@ -58,6 +59,7 @@ class SearchMemoryTool:
             project: Filter by project
             limit: Maximum results
             sort_by: Sort order
+            text_match: Optional keyword that must appear in content
 
         Returns:
             List of RecallResults
@@ -75,4 +77,5 @@ class SearchMemoryTool:
             project=project,
             limit=limit,
             sort_by=sort_by,
+            text_match=text_match,
         )

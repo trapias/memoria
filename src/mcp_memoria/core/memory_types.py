@@ -65,6 +65,7 @@ class MemoryItem(BaseModel):
         # Extract known fields
         known_fields = {
             "content",
+            "full_content",
             "memory_type",
             "created_at",
             "updated_at",
@@ -72,6 +73,10 @@ class MemoryItem(BaseModel):
             "access_count",
             "importance",
             "tags",
+            "is_chunk",
+            "parent_id",
+            "chunk_index",
+            "chunk_count",
         }
         metadata = {k: v for k, v in payload.items() if k not in known_fields}
 
@@ -91,10 +96,13 @@ class MemoryItem(BaseModel):
                 logger.error(f"Error parsing {field_name}: {type(value).__name__} = {value!r}, error: {e}")
                 raise
 
+        # Use full_content if available (chunked memories), else content
+        content = payload.get("full_content", payload.get("content", ""))
+
         try:
             return cls(
                 id=id,
-                content=payload.get("content", ""),
+                content=content,
                 memory_type=MemoryType(payload.get("memory_type", "episodic")),
                 created_at=parse_datetime(payload.get("created_at"), "created_at"),
                 updated_at=parse_datetime(payload.get("updated_at"), "updated_at"),
