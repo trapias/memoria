@@ -8,11 +8,15 @@ from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.server.sse import SseServerTransport
 from mcp.types import (
     Resource,
     TextContent,
     Tool,
 )
+from starlette.applications import Starlette
+from starlette.responses import Response
+from starlette.routing import Mount, Route
 
 from mcp_memoria.config.settings import Settings, get_settings
 from mcp_memoria.core.memory_manager import MemoryManager
@@ -563,13 +567,13 @@ class MemoriaServer:
         return await self.memory_manager.initialize()
 
     async def run(self) -> None:
-        """Run the MCP server."""
+        """Run the MCP server with stdio transport."""
         # Initialize memory system
         if not await self.initialize():
             logger.error("Failed to initialize memory system")
             return
 
-        logger.info("Starting Memoria MCP server...")
+        logger.info("Starting Memoria MCP server (stdio mode)...")
 
         # Run the server
         async with stdio_server() as (read_stream, write_stream):
@@ -578,6 +582,61 @@ class MemoriaServer:
                 write_stream,
                 self.server.create_initialization_options(),
             )
+
+    async def run_http(self, port: int, host: str = "0.0.0.0") -> None:
+        """Run the MCP server with HTTP/SSE transport.
+
+        Args:
+            port: HTTP port to listen on
+            host: Host to bind to (default: 0.0.0.0)
+        """
+        import uvicorn
+
+        # Initialize memory system
+        if not await self.initialize():
+            logger.error("Failed to initialize memory system")
+            return
+
+        logger.info(f"Starting Memoria MCP server (HTTP mode on {host}:{port})...")
+
+        # Create SSE transport
+        sse = SseServerTransport("/messages/")
+
+        async def handle_sse(request):  # type: ignore[no-untyped-def]
+            """Handle SSE connection requests."""
+            async with sse.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await self.server.run(
+                    streams[0],
+                    streams[1],
+                    self.server.create_initialization_options(),
+                )
+            return Response()
+
+        async def handle_health(request):  # type: ignore[no-untyped-def]
+            """Health check endpoint."""
+            return Response(content="OK", media_type="text/plain")
+
+        # Create Starlette app
+        app = Starlette(
+            debug=False,
+            routes=[
+                Route("/health", endpoint=handle_health),
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages/", app=sse.handle_post_message),
+            ],
+        )
+
+        # Run with uvicorn
+        config = uvicorn.Config(
+            app,
+            host=host,
+            port=port,
+            log_level="info",
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
 
 
 async def main() -> None:

@@ -39,7 +39,15 @@ def main() -> None:
 
     # Run server
     server = MemoriaServer(settings)
-    asyncio.run(server.run())
+
+    if settings.http_port:
+        # HTTP/SSE mode
+        logger.info(f"Transport: HTTP/SSE on {settings.http_host}:{settings.http_port}")
+        asyncio.run(server.run_http(settings.http_port, settings.http_host))
+    else:
+        # stdio mode (default)
+        logger.info("Transport: stdio")
+        asyncio.run(server.run())
 
 
 if __name__ == "__main__":

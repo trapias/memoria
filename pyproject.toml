@@ -1,6 +1,6 @@
 [project]
 name = "mcp-memoria"
-version = "1.0.2"
+version = "1.1.0"
 description = "MCP server for unlimited local AI memory using Qdrant and Ollama"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -29,6 +29,8 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "numpy>=1.26.0",
     "rich>=13.0.0",
+    "starlette>=0.40.0",
+    "uvicorn>=0.30.0",
 ]
 
 [project.optional-dependencies]

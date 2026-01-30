@@ -104,6 +104,16 @@ class Settings(BaseSettings):
         description="Log file path (if set, logs are written to file in addition to stderr)",
     )
 
+    # HTTP transport settings
+    http_port: int | None = Field(
+        default=None,
+        description="HTTP port for SSE transport (if set, uses HTTP instead of stdio)",
+    )
+    http_host: str = Field(
+        default="0.0.0.0",
+        description="HTTP host to bind to",
+    )
+
     def ensure_directories(self) -> None:
         """Create necessary directories if they don't exist."""
         self.qdrant_path.mkdir(parents=True, exist_ok=True)

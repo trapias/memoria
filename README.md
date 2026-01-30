@@ -18,6 +18,7 @@ MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, u
 - **Memory Consolidation**: Automatic merging of similar memories
 - **Forgetting Curve**: Natural decay of unused, low-importance memories
 - **Export/Import**: Backup and share your memories
+- **Dual Transport**: stdio (default) or HTTP/SSE for flexible deployment
 
 ## Quick Start
 
@@ -112,6 +113,8 @@ Add to your Claude Desktop config:
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
+#### Option A: Direct Python (if installed locally)
+
 ```json
 {
   "mcpServers": {
@@ -125,6 +128,40 @@ Add to your Claude Desktop config:
     }
   }
 }
+```
+
+#### Option B: Docker (recommended)
+
+This runs Memoria in a container, connecting to a persistent Qdrant container:
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--network", "memoria-network",
+        "-v", "/tmp/memoria-logs:/logs",
+        "-e", "MEMORIA_QDRANT_HOST=memoria-qdrant",
+        "-e", "MEMORIA_QDRANT_PORT=6333",
+        "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
+        "-e", "MEMORIA_LOG_LEVEL=WARNING",
+        "-e", "MEMORIA_LOG_FILE=/logs/memoria.log",
+        "mcp-memoria:latest"
+      ]
+    }
+  }
+}
+```
+
+**Prerequisites for Docker setup:**
+```bash
+# 1. Start Qdrant (creates network and persistent storage)
+cd docker && docker-compose -f docker-compose.qdrant-only.yml up -d
+
+# 2. Build Memoria image
+docker build -t mcp-memoria:latest -f docker/Dockerfile .
 ```
 
 ## Usage
@@ -255,6 +292,55 @@ Import memories from shared-knowledge.json
 
 5. **Natural language**: You don't need special syntax - just talk naturally about what you want to remember or recall
 
+## Transport Modes
+
+MCP Memoria supports two transport modes:
+
+### stdio (Default)
+
+Standard input/output transport. Each client session spawns a new Memoria process. This is the default mode and works with all MCP clients.
+
+```bash
+# Direct execution
+python -m mcp_memoria
+
+# Or via Docker
+docker run --rm -i --network memoria-network \
+  -e MEMORIA_QDRANT_HOST=memoria-qdrant \
+  mcp-memoria:latest
+```
+
+### HTTP/SSE (v1.1.0+)
+
+HTTP transport with Server-Sent Events. Useful for:
+- Web applications and browser-based clients
+- Custom integrations that can't spawn processes
+- Remote access scenarios
+
+```bash
+# Enable HTTP mode by setting the port
+MEMORIA_HTTP_PORT=8765 python -m mcp_memoria
+
+# Or with Docker
+docker run -p 8765:8765 \
+  -e MEMORIA_HTTP_PORT=8765 \
+  -e MEMORIA_QDRANT_HOST=memoria-qdrant \
+  --network memoria-network \
+  mcp-memoria:latest
+```
+
+**Endpoints:**
+- `GET /sse` - SSE connection endpoint
+- `POST /messages/` - Message endpoint
+- `GET /health` - Health check
+
+**Docker Compose for HTTP mode:**
+```bash
+cd docker && docker-compose -f docker-compose.http.yml up -d
+```
+
+> **Note:** Claude Desktop requires stdio transport. Use the Docker configuration shown in "Configure Claude Desktop" section above.
+
 ## Docker Deployment
 
 ### Recommended Setup: Dockerized Memoria with Persistent Qdrant
@@ -286,24 +372,45 @@ docker build -t docker-memoria .
 
 #### Step 3: Configure Claude Code
 
-Add to your Claude Code MCP configuration (`~/.claude.json` or project settings):
+Add to your Claude Code MCP configuration (`~/.claude.json` or project settings).
+
+**Option A: Python direct (if installed locally)**
 
 ```json
 {
   "mcpServers": {
     "memoria": {
-      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_memoria"],
+      "env": {
+        "MEMORIA_QDRANT_HOST": "localhost",
+        "MEMORIA_QDRANT_PORT": "6333",
+        "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
+      }
+    }
+  }
+}
+```
+
+**Option B: Docker stdio (recommended)**
+
+Each session spawns a new container that is removed on exit:
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
       "command": "docker",
       "args": [
-        "run",
-        "--rm",
-        "-i",
+        "run", "-i", "--rm",
         "--network", "memoria-network",
+        "-v", "/tmp/memoria-logs:/logs",
         "-e", "MEMORIA_QDRANT_HOST=memoria-qdrant",
         "-e", "MEMORIA_QDRANT_PORT=6333",
         "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
         "-e", "MEMORIA_LOG_LEVEL=WARNING",
-        "docker-memoria"
+        "-e", "MEMORIA_LOG_FILE=/logs/memoria.log",
+        "mcp-memoria:latest"
       ]
     }
   }
@@ -314,6 +421,41 @@ Add to your Claude Code MCP configuration (`~/.claude.json` or project settings)
 - `--rm`: Remove container when Claude session ends
 - `-i`: Interactive mode for MCP stdio communication
 - `--network memoria-network`: Connect to Qdrant's network
+- `-v /tmp/memoria-logs:/logs`: Mount volume for persistent logs
+
+**Option C: HTTP/SSE transport**
+
+With HTTP mode, you run a persistent Memoria server and Claude Code connects to it via URL.
+
+**Step 1**: Start the HTTP server (keep it running):
+
+```bash
+# Using docker-compose (recommended)
+cd docker && docker-compose -f docker-compose.http.yml up -d
+
+# Or manually with docker run
+docker run -d --name memoria-http \
+  -p 8765:8765 \
+  --network memoria-network \
+  -e MEMORIA_HTTP_PORT=8765 \
+  -e MEMORIA_QDRANT_HOST=memoria-qdrant \
+  -e MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434 \
+  mcp-memoria:latest
+```
+
+**Step 2**: Configure Claude Code to connect via URL:
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "url": "http://localhost:8765/sse"
+    }
+  }
+}
+```
+
+> **Note**: The `url` config only works if the server is already running. Claude Code connects to an existing server - it doesn't launch anything.
 
 #### Environment Variables
 
@@ -536,6 +678,8 @@ Environment variables:
 | `MEMORIA_CHUNK_OVERLAP` | `50` | Overlap characters between consecutive chunks |
 | `MEMORIA_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `MEMORIA_LOG_FILE` | - | Path to log file (logs to file in addition to stderr) |
+| `MEMORIA_HTTP_PORT` | - | HTTP port for SSE transport (enables HTTP mode instead of stdio) |
+| `MEMORIA_HTTP_HOST` | `0.0.0.0` | HTTP host to bind to (only used with HTTP mode) |
 
 ## Memory Types
 
