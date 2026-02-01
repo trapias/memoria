@@ -38,11 +38,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy Python source first (needed for pip install)
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir "."
+# Install Python dependencies (with postgres support for GraphManager)
+RUN pip install --no-cache-dir ".[postgres]"
 
 # Copy built Next.js app
 COPY --from=frontend-builder /app/web/.next ./web/.next
