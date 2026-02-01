@@ -1048,17 +1048,17 @@ class GraphManager:
             # Find memories with the most relations (incoming + outgoing)
             rows = await self._db.fetch(
                 """
-                SELECT memory_id, total_count FROM (
-                    SELECT source_id AS memory_id, COUNT(*) as total_count
+                SELECT memory_id, SUM(relation_count) as total_count FROM (
+                    SELECT source_id AS memory_id, COUNT(*) as relation_count
                     FROM memory_relations
                     GROUP BY source_id
                     UNION ALL
-                    SELECT target_id AS memory_id, COUNT(*) as total_count
+                    SELECT target_id AS memory_id, COUNT(*) as relation_count
                     FROM memory_relations
                     GROUP BY target_id
                 ) combined
                 GROUP BY memory_id
-                ORDER BY SUM(total_count) DESC
+                ORDER BY total_count DESC
                 LIMIT $1
                 """,
                 limit,

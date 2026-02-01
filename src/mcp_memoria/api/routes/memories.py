@@ -362,27 +362,25 @@ async def get_memory(request: Request, memory_id: str) -> MemoryResponse:
     Args:
         memory_id: The memory UUID
     """
+    from mcp_memoria.core.memory_types import MemoryType
+
     memory_manager = request.app.state.memory_manager
 
-    # Search for exact match
-    results = await memory_manager.search(
-        memory_id=memory_id,
-        limit=1,
-    )
+    # Try each memory type until we find it
+    for memory_type in MemoryType:
+        m = await memory_manager.get(memory_id=memory_id, memory_type=memory_type)
+        if m:
+            return MemoryResponse(
+                id=m.id,
+                content=m.content,
+                memory_type=m.memory_type.value if hasattr(m.memory_type, 'value') else str(m.memory_type),
+                tags=m.tags,
+                importance=m.importance,
+                created_at=m.created_at.isoformat() if hasattr(m.created_at, 'isoformat') else str(m.created_at),
+                updated_at=m.updated_at.isoformat() if hasattr(m.updated_at, 'isoformat') else str(m.updated_at),
+            )
 
-    if not results:
-        raise HTTPException(status_code=404, detail="Memory not found")
-
-    m = results[0]
-    return MemoryResponse(
-        id=m.id,
-        content=m.content,
-        memory_type=m.memory_type.value if hasattr(m.memory_type, 'value') else str(m.memory_type),
-        tags=m.tags,
-        importance=m.importance,
-        created_at=m.created_at.isoformat() if hasattr(m.created_at, 'isoformat') else str(m.created_at),
-        updated_at=m.updated_at.isoformat() if hasattr(m.updated_at, 'isoformat') else str(m.updated_at),
-    )
+    raise HTTPException(status_code=404, detail="Memory not found")
 
 
 @router.post("/consolidate")

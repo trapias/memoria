@@ -16,6 +16,7 @@ import { ArrowRight, ArrowLeft, Link2, Eye, Target, Plus } from "lucide-react";
 
 interface GraphSidebarProps {
   selectedNode: GraphNode | null;
+  allNodes: GraphNode[];
   onNodeSelect: (node: GraphNode | null) => void;
   onCenterNode: (id: string) => void;
   onAddRelation?: () => void;
@@ -23,10 +24,27 @@ interface GraphSidebarProps {
 
 export function GraphSidebar({
   selectedNode,
+  allNodes,
   onNodeSelect,
   onCenterNode,
   onAddRelation,
 }: GraphSidebarProps) {
+  // Helper to get node label by ID
+  const getNodeLabel = (id: string): string => {
+    const node = allNodes.find((n) => n.id === id);
+    return node?.label ?? id.slice(0, 8) + "...";
+  };
+
+  // Helper to navigate to a related node
+  const handleRelationClick = (nodeId: string) => {
+    const node = allNodes.find((n) => n.id === nodeId);
+    if (node) {
+      onNodeSelect(node);
+    } else {
+      // Node not in current graph, center on it to load its subgraph
+      onCenterNode(nodeId);
+    }
+  };
   const { data: memory } = useMemory(selectedNode?.id ?? null);
   const { data: relationsData } = useRelations(selectedNode?.id ?? null);
 
@@ -125,9 +143,11 @@ export function GraphSidebar({
               </p>
               <div className="space-y-2">
                 {outgoing.map((r) => (
-                  <div
+                  <button
                     key={r.id}
-                    className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50"
+                    onClick={() => handleRelationClick(r.target_id)}
+                    className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50 hover:bg-muted w-full text-left transition-colors"
+                    title={`Click to view: ${getNodeLabel(r.target_id)}`}
                   >
                     <div
                       className="w-2 h-2 rounded-full shrink-0"
@@ -135,12 +155,13 @@ export function GraphSidebar({
                         backgroundColor: RELATION_COLORS[r.type] ?? "#6b7280",
                       }}
                     />
-                    <span className="font-medium">{r.type}</span>
-                    <span className="text-muted-foreground">→</span>
-                    <span className="truncate text-muted-foreground">
-                      {r.target_id.slice(0, 8)}...
+                    <span className="font-medium shrink-0">{r.type}</span>
+                    <span className="text-muted-foreground shrink-0">→</span>
+                    <span className="truncate text-primary hover:underline">
+                      {getNodeLabel(r.target_id)}
                     </span>
-                  </div>
+                    <Eye className="h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
+                  </button>
                 ))}
               </div>
             </div>
@@ -155,22 +176,25 @@ export function GraphSidebar({
               </p>
               <div className="space-y-2">
                 {incoming.map((r) => (
-                  <div
+                  <button
                     key={r.id}
-                    className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50"
+                    onClick={() => handleRelationClick(r.source_id)}
+                    className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50 hover:bg-muted w-full text-left transition-colors"
+                    title={`Click to view: ${getNodeLabel(r.source_id)}`}
                   >
-                    <span className="truncate text-muted-foreground">
-                      {r.source_id.slice(0, 8)}...
+                    <Eye className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-primary hover:underline">
+                      {getNodeLabel(r.source_id)}
                     </span>
-                    <span className="text-muted-foreground">→</span>
-                    <span className="font-medium">{r.type}</span>
+                    <span className="text-muted-foreground shrink-0">→</span>
+                    <span className="font-medium shrink-0">{r.type}</span>
                     <div
-                      className="w-2 h-2 rounded-full shrink-0"
+                      className="w-2 h-2 rounded-full shrink-0 ml-auto"
                       style={{
                         backgroundColor: RELATION_COLORS[r.type] ?? "#6b7280",
                       }}
                     />
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

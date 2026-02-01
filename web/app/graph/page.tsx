@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Sparkles, Network, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,13 +14,24 @@ import { RelationForm } from "@/components/graph/relation-form";
 import { useSubgraph, useGraphOverview } from "@/lib/hooks/use-graph";
 import { GraphNode } from "@/lib/api";
 
-export default function GraphPage() {
-  const [centerId, setCenterId] = useState<string | null>(null);
+// Inner component that uses useSearchParams
+function GraphPageInner() {
+  const searchParams = useSearchParams();
+  const centerFromUrl = searchParams.get("center");
+
+  const [centerId, setCenterId] = useState<string | null>(centerFromUrl);
   const [depth, setDepth] = useState(2);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [relationFilter, setRelationFilter] = useState<string | null>(null);
   const [showOverview, setShowOverview] = useState(false);
   const [showRelationForm, setShowRelationForm] = useState(false);
+
+  // Update centerId when URL changes
+  useEffect(() => {
+    if (centerFromUrl && centerFromUrl !== centerId) {
+      setCenterId(centerFromUrl);
+    }
+  }, [centerFromUrl]);
 
   const { data: subgraph, isLoading } = useSubgraph(centerId, depth);
   const { data: overviewGraph, isLoading: isLoadingOverview } = useGraphOverview(
@@ -156,6 +168,7 @@ export default function GraphPage() {
       <div className="w-80 border-l bg-background flex flex-col">
         <GraphSidebar
           selectedNode={selectedNode}
+          allNodes={activeGraph?.nodes ?? []}
           onNodeSelect={handleNodeSelect}
           onCenterNode={handleMemorySelect}
           onAddRelation={handleAddRelationFromNode}
@@ -184,5 +197,20 @@ export default function GraphPage() {
         />
       )}
     </div>
+  );
+}
+
+// Main export with Suspense boundary for useSearchParams
+export default function GraphPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-[calc(100vh-64px)] items-center justify-center">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      }
+    >
+      <GraphPageInner />
+    </Suspense>
   );
 }

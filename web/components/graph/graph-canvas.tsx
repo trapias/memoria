@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import type { ForceGraphMethods, NodeObject, LinkObject } from "react-force-graph-2d";
 import { GraphNode, GraphEdge } from "@/lib/api";
@@ -51,6 +51,9 @@ export function GraphCanvas({
 }: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastClickTime = useRef<number>(0);
+  const lastClickedNode = useRef<string | null>(null);
+  const DOUBLE_CLICK_DELAY = 300; // ms
 
   // Filter edges by relation type if filter is set
   const filteredEdges = useMemo(() => {
@@ -67,6 +70,17 @@ export function GraphCanvas({
     });
     return ids;
   }, [filteredEdges]);
+
+  // Get nodes connected to selected node (for dimming others)
+  const selectedConnectedIds = useMemo(() => {
+    if (!selectedNode) return null;
+    const ids = new Set<string>([selectedNode.id]);
+    edges.forEach((e) => {
+      if (e.source === selectedNode.id) ids.add(e.target);
+      if (e.target === selectedNode.id) ids.add(e.source);
+    });
+    return ids;
+  }, [selectedNode, edges]);
 
   // Filter nodes to only show connected ones when filter is active
   const filteredNodes = useMemo(() => {
@@ -106,25 +120,34 @@ export function GraphCanvas({
 
   // Node colors based on type
   const getNodeColor = useCallback(
-    (node: GraphNodeObject) => {
+    (node: GraphNodeObject, dimmed = false) => {
+      let color: string;
       if (selectedNode?.id === node.id) {
-        return "#3b82f6"; // blue for selected
+        color = "#3b82f6"; // blue for selected
+      } else if (node.isCenter) {
+        color = "#8b5cf6"; // purple for center
+      } else {
+        switch (node.type) {
+          case "episodic":
+            color = "#22c55e"; // green
+            break;
+          case "semantic":
+            color = "#f59e0b"; // amber
+            break;
+          case "procedural":
+            color = "#ec4899"; // pink
+            break;
+          default:
+            color = "#6b7280"; // gray
+        }
       }
-      if (node.isCenter) {
-        return "#8b5cf6"; // purple for center
+      // Dim unconnected nodes when a node is selected
+      if (dimmed && selectedConnectedIds && !selectedConnectedIds.has(node.id)) {
+        return color + "40"; // Add 25% opacity
       }
-      switch (node.type) {
-        case "episodic":
-          return "#22c55e"; // green
-        case "semantic":
-          return "#f59e0b"; // amber
-        case "procedural":
-          return "#ec4899"; // pink
-        default:
-          return "#6b7280"; // gray
-      }
+      return color;
     },
-    [selectedNode]
+    [selectedNode, selectedConnectedIds]
   );
 
   // Node size based on importance
@@ -140,30 +163,74 @@ export function GraphCanvas({
     return RELATION_COLORS[link.type] ?? "#6b7280";
   }, []);
 
-  // Handle click
+  // Handle click with double-click detection
   const handleClick = useCallback(
     (node: NodeObject | null) => {
-      if (node) {
-        const graphNode = nodes.find((n) => n.id === node.id);
-        if (graphNode) {
-          onNodeClick(graphNode);
-        }
+      if (!node) return;
+
+      const now = Date.now();
+      const graphNode = nodes.find((n) => n.id === node.id);
+      if (!graphNode) return;
+
+      // Check for double-click
+      if (
+        lastClickedNode.current === node.id &&
+        now - lastClickTime.current < DOUBLE_CLICK_DELAY
+      ) {
+        // Double-click: center on node
+        onNodeDoubleClick(graphNode);
+        lastClickTime.current = 0;
+        lastClickedNode.current = null;
+      } else {
+        // Single click: select node
+        onNodeClick(graphNode);
+        lastClickTime.current = now;
+        lastClickedNode.current = node.id as string;
       }
     },
-    [nodes, onNodeClick]
+    [nodes, onNodeClick, onNodeDoubleClick]
   );
 
-  // Handle double click
-  const handleDoubleClick = useCallback(
-    (node: NodeObject | null) => {
-      if (node) {
-        const graphNode = nodes.find((n) => n.id === node.id);
-        if (graphNode) {
-          onNodeDoubleClick(graphNode);
-        }
+  // Custom node label rendering (added AFTER default node)
+  const drawNodeLabel = useCallback(
+    (node: NodeObject, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      const graphNode = node as GraphNodeObject;
+      const size = getNodeSize(graphNode);
+      const x = node.x ?? 0;
+      const y = node.y ?? 0;
+
+      // Determine if this node should be dimmed
+      const isDimmed = selectedConnectedIds && !selectedConnectedIds.has(graphNode.id);
+
+      // Draw label only if zoomed in enough (globalScale > 0.8) or node is selected/center
+      const showLabel = globalScale > 0.8 || graphNode.isCenter || selectedNode?.id === graphNode.id;
+      if (showLabel && !isDimmed) {
+        const label = graphNode.label.length > 25
+          ? graphNode.label.substring(0, 22) + "..."
+          : graphNode.label;
+
+        const fontSize = Math.max(10 / globalScale, 3);
+        ctx.font = `${fontSize}px Inter, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+
+        // Text background for readability
+        const textWidth = ctx.measureText(label).width;
+        const padding = 2 / globalScale;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.fillRect(
+          x - textWidth / 2 - padding,
+          y + size + 2,
+          textWidth + padding * 2,
+          fontSize + padding
+        );
+
+        // Draw text
+        ctx.fillStyle = isDimmed ? "#9ca3af" : "#374151";
+        ctx.fillText(label, x, y + size + 3);
       }
     },
-    [nodes, onNodeDoubleClick]
+    [getNodeSize, selectedNode, selectedConnectedIds]
   );
 
   return (
@@ -172,14 +239,15 @@ export function GraphCanvas({
         ref={fgRef}
         graphData={graphData}
         nodeLabel={(node) => (node as GraphNodeObject).label}
-        nodeColor={(node) => getNodeColor(node as GraphNodeObject)}
+        nodeColor={(node) => getNodeColor(node as GraphNodeObject, true)}
         nodeVal={(node) => getNodeSize(node as GraphNodeObject)}
+        nodeCanvasObjectMode={() => "after"}
+        nodeCanvasObject={drawNodeLabel}
         linkColor={(link) => getLinkColor(link as GraphLinkObject)}
         linkWidth={(link) => (link as GraphLinkObject).weight * 2}
         linkDirectionalArrowLength={6}
         linkDirectionalArrowRelPos={1}
         onNodeClick={handleClick}
-        onNodeRightClick={handleDoubleClick}
         linkLabel={(link) => (link as GraphLinkObject).type}
         enableNodeDrag={true}
         enableZoomInteraction={true}
