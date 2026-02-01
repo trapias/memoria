@@ -1,52 +1,65 @@
-# Memoria Dual-Database Architecture
-# Central docker-compose for Qdrant (vectors) + PostgreSQL (relational)
+# Memoria Dual-Database Architecture + Web UI
+# Central docker-compose for Qdrant (vectors) + PostgreSQL (relational) + Web UI
 #
 # ═══════════════════════════════════════════════════════════════════════════════
-# RECOMMENDED PRODUCTION ARCHITECTURE
+# ARCHITECTURE OVERVIEW
 # ═══════════════════════════════════════════════════════════════════════════════
-#
-# This file configures the SHARED DATABASES (Qdrant + PostgreSQL).
-# Claude Code clients should run Memoria as a LOCAL PROCESS (stdio),
-# NOT as a shared HTTP server.
 #
 #   ┌─────────────────┐     ┌─────────────────┐
 #   │  Claude Code 1  │     │  Claude Code 2  │     (different devices)
 #   │       │         │     │       │         │
 #   │  ┌────▼────┐    │     │  ┌────▼────┐    │
-#   │  │ Memoria │    │     │  │ Memoria │    │     ← SEPARATE PROCESSES (stdio)
+#   │  │ Memoria │    │     │  │ Memoria │    │     ← LOCAL PROCESSES (stdio)
 #   │  │ (local) │    │     │  │ (local) │    │       Isolated WorkingMemory
 #   │  └────┬────┘    │     │  └────┬────┘    │
 #   └───────┼─────────┘     └───────┼─────────┘
 #           │                       │
 #           └───────────┬───────────┘
 #                       │
+#   ┌───────────────────▼───────────────────────────────────────┐
+#   │                    Central Docker                          │
+#   │                                                            │
+#   │  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐  │
+#   │  │   Qdrant    │  │ PostgreSQL  │  │    Web UI + API   │  │
+#   │  │   :6333     │  │   :5433     │  │  :3000 (UI)       │  │
+#   │  │  (vectors)  │  │ (relations) │  │  :8765 (API)      │  │
+#   │  └─────────────┘  └─────────────┘  └───────────────────┘  │
+#   │                                                            │
+#   └────────────────────────────────────────────────────────────┘
+#                       │
 #           ┌───────────▼───────────┐
-#           │   Central Docker      │
-#           │  ┌─────┐  ┌────────┐  │
-#           │  │Qdrant│  │PostgreSQL│ │  ← THIS FILE
-#           │  └─────┘  └────────┘  │
+#           │  Browser (any device) │  → http://localhost:3000
+#           │  - Graph Explorer     │
+#           │  - Memory Browser     │
+#           │  - Dashboard          │
 #           └───────────────────────┘
 #
-# This architecture ensures:
-#   - Isolated WorkingMemory for each Claude session
-#   - No risk of context confusion between sessions/users
-#   - Shared persistent storage for long-term memories
+# This architecture provides:
+#   - Isolated WorkingMemory for each Claude session (stdio)
+#   - Shared persistent storage (Qdrant + PostgreSQL)
+#   - Web UI accessible from any browser
+#   - REST API for custom integrations
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 # Usage:
+#   cd docker && ./start.sh central    # Start all services
+#   cd docker && ./start.sh stop       # Stop all services
+#
+# Or manually:
 #   cd docker && docker-compose -f docker-compose.central.yml up -d
 #
-# Environment variables:
+# Environment variables (set in .env file or export):
 #   POSTGRES_PASSWORD - Database password (default: memoria_dev)
-#   QDRANT_API_KEY - Qdrant API key (optional, for security)
+#   EMBEDDING_MODEL   - Ollama model for embeddings (default: nomic-embed-text)
 #
 # Services:
-#   - qdrant: Vector database on :6333/:6334
-#   - postgres: Relational database on :5432
+#   - qdrant:      Vector database on :6333/:6334
+#   - postgres:    Relational database on :5433 (external), :5432 (internal)
+#   - memoria-ui:  Web UI on :3000, REST API on :8765
 #
 # Networks:
-#   - All services on 'memoria' network for inter-service communication
+#   - All services on 'memoria-network' for inter-service communication
 
 name: memoria
 

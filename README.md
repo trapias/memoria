@@ -15,10 +15,16 @@ MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, u
 - **Semantic Search**: Find relevant memories by meaning, not just keywords
 - **Full-Text Match**: Filter results by exact keyword presence in content
 - **Content Chunking**: Long memories are automatically split into chunks for higher-quality embeddings; results are transparently deduplicated
+- **Knowledge Graph** (v1.2.0+): Create typed relationships between memories
+  - 9 relation types: causes, fixes, supports, opposes, follows, supersedes, derives, part_of, related
+  - Graph traversal with BFS/DFS
+  - AI-powered relation suggestions
+  - Path finding between memories
 - **Memory Consolidation**: Automatic merging of similar memories
 - **Forgetting Curve**: Natural decay of unused, low-importance memories
 - **Export/Import**: Backup and share your memories
 - **Dual Transport**: stdio (default) or HTTP/SSE for flexible deployment
+- **Dual Database**: Qdrant for vectors + PostgreSQL for relational data (optional)
 
 ## Quick Start
 
@@ -213,6 +219,11 @@ What do you remember about this project?
 | `memoria_import` | Import memories from file |
 | `memoria_stats` | View system statistics |
 | `memoria_set_context` | Set current project/file context |
+| `memoria_link` | Create a relationship between two memories |
+| `memoria_unlink` | Remove a relationship between memories |
+| `memoria_related` | Find memories related through the knowledge graph |
+| `memoria_path` | Find shortest path between two memories |
+| `memoria_suggest_links` | Get AI-powered relation suggestions |
 
 ### Example Interactions
 
@@ -261,6 +272,38 @@ Later, when working on the same project:
 ```
 What do you remember about the ecommerce-api project?
 ```
+
+#### Knowledge Graph (v1.2.0+)
+
+Create and explore relationships between memories:
+
+```
+# Create a relationship
+Link memory [problem-id] to [solution-id] with type "fixes"
+
+# Find related memories
+What memories are related to [memory-id]?
+Show me all memories that this one causes
+
+# Find connections
+Is there a path between [memory-a] and [memory-b]?
+
+# Get suggestions
+Suggest relationships for memory [id]
+```
+
+**Relation Types:**
+| Type | Description | Example |
+|------|-------------|---------|
+| `causes` | A leads to B | Decision → Consequence |
+| `fixes` | A resolves B | Solution → Problem |
+| `supports` | A confirms B | Evidence → Claim |
+| `opposes` | A contradicts B | Counterargument → Argument |
+| `follows` | A comes after B | Event → Previous event |
+| `supersedes` | A replaces B | New fact → Old fact |
+| `derives` | A is derived from B | Summary → Original |
+| `part_of` | A is component of B | Chapter → Book |
+| `related` | Generic connection | Any correlation |
 
 #### Memory Management
 
@@ -312,10 +355,23 @@ docker run --rm -i --network memoria-network \
 
 ### HTTP/SSE (v1.1.0+)
 
+> ⚠️ **WARNING: FOR TESTING/DEVELOPMENT ONLY**
+>
+> A shared HTTP server is **NOT recommended** for multi-client production use.
+>
+> **Problems with shared HTTP server:**
+> - WorkingMemory is shared across ALL sessions
+> - Risk of context confusion between different users
+> - No session isolation
+>
+> **Use only for:** local testing, single-user scenarios, demos/proof-of-concept.
+>
+> **For production:** Each Claude Code instance should have its own local Memoria process (stdio transport) connecting to shared databases.
+
 HTTP transport with Server-Sent Events. Useful for:
 - Web applications and browser-based clients
 - Custom integrations that can't spawn processes
-- Remote access scenarios
+- Remote access scenarios (single-user only)
 
 ```bash
 # Enable HTTP mode by setting the port
@@ -342,6 +398,83 @@ cd docker && docker-compose -f docker-compose.http.yml up -d
 > **Note:** Claude Desktop requires stdio transport. Use the Docker configuration shown in "Configure Claude Desktop" section above.
 
 ## Docker Deployment
+
+### Dual-Database Architecture + Web UI (v2.0.0+)
+
+For Knowledge Graph features, Memoria uses PostgreSQL alongside Qdrant, plus an optional Web UI:
+
+```
+┌─────────────────┐     ┌─────────────────┐
+│  Claude Code 1  │     │  Claude Code 2  │
+│       │         │     │       │         │
+│  ┌────▼────┐    │     │  ┌────▼────┐    │
+│  │ Memoria │    │     │  │ Memoria │    │  ← LOCAL PROCESSES (stdio)
+│  │ (local) │    │     │  │ (local) │    │    Isolated WorkingMemory
+│  └────┬────┘    │     │  └────┬────┘    │
+└───────┼─────────┘     └───────┼─────────┘
+        │                       │
+        └───────────┬───────────┘
+                    │
+┌───────────────────▼───────────────────────────────────┐
+│                    Central Docker                      │
+│                                                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐  │
+│  │   Qdrant    │  │ PostgreSQL  │  │  Web UI + API │  │
+│  │   :6333     │  │   :5433     │  │  :3000 / :8765│  │
+│  │  (vectors)  │  │ (relations) │  │               │  │
+│  └─────────────┘  └─────────────┘  └───────────────┘  │
+└───────────────────────────────────────────────────────┘
+                    │
+        ┌───────────▼───────────┐
+        │  Browser (any device) │  → http://localhost:3000
+        │  - Knowledge Graph    │
+        │  - Memory Browser     │
+        │  - Dashboard          │
+        └───────────────────────┘
+```
+
+**Start everything with one command:**
+
+```bash
+cd docker && ./start.sh central
+```
+
+Or manually:
+
+```bash
+cd docker && docker-compose -f docker-compose.central.yml up -d
+```
+
+This provides:
+- **Qdrant** on port 6333 (vector storage)
+- **PostgreSQL** on port 5433 (relational data, knowledge graph)
+- **Web UI** on port 3000 (Knowledge Graph Explorer)
+- **REST API** on port 8765 (for custom integrations)
+
+**Web UI Features:**
+- **Dashboard**: Memory stats and quick actions
+- **Knowledge Graph Explorer**: Interactive force-directed graph visualization
+- **Memory Search**: Semantic search with filters
+- **Relation Management**: Create/view/delete relations between memories
+- **AI Suggestions**: Get recommended relations based on content similarity
+
+**Access the Web UI:**
+- Open http://localhost:3000 in your browser
+- API documentation at http://localhost:8765/docs
+
+**Environment Configuration:**
+
+Create a `.env` file in the `docker/` folder (copy from `.env.example`):
+
+```bash
+# PostgreSQL password (default: memoria_dev)
+POSTGRES_PASSWORD=your_secure_password
+
+# Embedding model (default: nomic-embed-text)
+EMBEDDING_MODEL=nomic-embed-text
+```
+
+Each Claude Code session runs its own local Memoria process, ensuring isolated WorkingMemory while sharing persistent storage.
 
 ### Recommended Setup: Dockerized Memoria with Persistent Qdrant
 
@@ -423,7 +556,9 @@ Each session spawns a new container that is removed on exit:
 - `--network memoria-network`: Connect to Qdrant's network
 - `-v /tmp/memoria-logs:/logs`: Mount volume for persistent logs
 
-**Option C: HTTP/SSE transport**
+**Option C: HTTP/SSE transport** ⚠️ *Testing/Development Only*
+
+> **Warning:** HTTP mode shares WorkingMemory across all connected clients. This can cause context confusion between sessions. Use only for testing, demos, or single-user scenarios.
 
 With HTTP mode, you run a persistent Memoria server and Claude Code connects to it via URL.
 
@@ -680,6 +815,12 @@ Environment variables:
 | `MEMORIA_LOG_FILE` | - | Path to log file (logs to file in addition to stderr) |
 | `MEMORIA_HTTP_PORT` | - | HTTP port for SSE transport (enables HTTP mode instead of stdio) |
 | `MEMORIA_HTTP_HOST` | `0.0.0.0` | HTTP host to bind to (only used with HTTP mode) |
+| `MEMORIA_DATABASE_URL` | - | PostgreSQL connection URL for Knowledge Graph (optional) |
+| `MEMORIA_PG_HOST` | - | PostgreSQL host (alternative to DATABASE_URL) |
+| `MEMORIA_PG_PORT` | `5432` | PostgreSQL port |
+| `MEMORIA_PG_USER` | `memoria` | PostgreSQL username |
+| `MEMORIA_PG_PASSWORD` | - | PostgreSQL password |
+| `MEMORIA_PG_DATABASE` | `memoria` | PostgreSQL database name |
 
 ## Memory Types
 
@@ -730,15 +871,26 @@ Chunking is transparent — callers always see complete memories, never individu
 ┌─────────────────────────────────────┐
 │         MCP Memoria Server           │
 ├─────────────────────────────────────┤
-│  Tools: store, recall, search, etc.  │
+│  Tools: store, recall, search,       │
+│         link, related, path, etc.    │
 ├─────────────────────────────────────┤
-│          Memory Manager              │
-│  ┌─────────┐ ┌─────────┐ ┌────────┐ │
-│  │Episodic │ │Semantic │ │Procedur│ │
-│  └─────────┘ └─────────┘ └────────┘ │
+│  Memory Manager  │  Graph Manager    │
+│  ┌─────────────┐ │  ┌─────────────┐ │
+│  │  Episodic   │ │  │  Relations  │ │
+│  │  Semantic   │ │  │  Traversal  │ │
+│  │  Procedural │ │  │  Suggestions│ │
+│  └─────────────┘ │  └─────────────┘ │
 ├─────────────────────────────────────┤
-│  TextChunker │ Ollama     │ Qdrant   │
-│  (splitting) │ (embed)    │ (vectors)│
+│  TextChunker │ Ollama     │ Storage  │
+│  (splitting) │ (embed)    │          │
+│              │            │ ┌──────┐ │
+│              │            │ │Qdrant│ │
+│              │            │ │(vec) │ │
+│              │            │ └──────┘ │
+│              │            │ ┌──────┐ │
+│              │            │ │Postgr│ │
+│              │            │ │(rel) │ │
+│              │            │ └──────┘ │
 └─────────────────────────────────────┘
 ```
 

@@ -62,14 +62,19 @@ load_env() {
 
 start_central() {
     print_header
-    print_info "Starting Central Architecture (Qdrant + PostgreSQL)"
+    print_info "Starting Central Architecture (Qdrant + PostgreSQL + Web UI)"
 
     check_docker
     load_env
 
     print_info "Services to start:"
     echo "  - Qdrant (vector database) on :6333/:6334"
-    echo "  - PostgreSQL (relational database) on :5432"
+    echo "  - PostgreSQL (relational database) on :5433"
+    echo "  - Web UI on :3000"
+    echo "  - REST API on :8765"
+
+    # Ensure network exists
+    docker network create memoria-network 2>/dev/null || true
 
     print_info "Starting services..."
     docker-compose -f docker-compose.central.yml up -d
@@ -77,7 +82,7 @@ start_central() {
     print_success "Services started"
 
     print_info "Waiting for services to be healthy..."
-    sleep 5
+    sleep 10
 
     # Check health
     if docker-compose -f docker-compose.central.yml ps | grep -q "healthy"; then
@@ -87,11 +92,17 @@ start_central() {
     fi
 
     print_info "Connection strings:"
-    echo "  Qdrant: http://localhost:6333"
-    echo "  PostgreSQL: postgresql://memoria:${POSTGRES_PASSWORD:-memoria_dev}@localhost:5432/memoria"
+    echo "  Qdrant:     http://localhost:6333"
+    echo "  PostgreSQL: postgresql://memoria:${POSTGRES_PASSWORD:-memoria_dev}@localhost:5433/memoria"
+    echo ""
+    print_info "Web interfaces:"
+    echo "  Web UI:   http://localhost:3000"
+    echo "  REST API: http://localhost:8765"
+    echo "  API docs: http://localhost:8765/docs"
 
     echo ""
     print_success "Setup complete!"
+    print_info "Open http://localhost:3000 in your browser to access the Knowledge Graph Explorer"
 }
 
 start_http() {
@@ -278,24 +289,36 @@ Usage:
   ./start.sh [COMMAND]
 
 Commands:
-  central         Start central architecture (Qdrant + PostgreSQL) [default]
-  http            Start HTTP/SSE transport with Qdrant
+  central         Start full stack: Qdrant + PostgreSQL + Web UI [default]
+  http            Start HTTP/SSE transport with Qdrant (no Web UI)
   qdrant-only     Start Qdrant only (minimal setup)
   stop            Stop all services
-  clean           Remove all containers and volumes
+  clean           Remove all containers and volumes (DESTRUCTIVE!)
   status          Show service status
   logs [TYPE]     Show logs (central|http|qdrant-only) [service]
 
 Examples:
-  ./start.sh                    # Start central architecture
-  ./start.sh http               # Start HTTP transport
+  ./start.sh                    # Start full stack with Web UI
+  ./start.sh central            # Same as above
+  ./start.sh http               # Start HTTP transport only
+  ./start.sh qdrant-only        # Start Qdrant only
   ./start.sh stop               # Stop all services
   ./start.sh logs central       # View central logs
-  ./start.sh logs http memoria  # View memoria logs
+  ./start.sh logs central memoria-ui  # View Web UI logs
+
+Services (central mode):
+  Qdrant:      http://localhost:6333   (vector database)
+  PostgreSQL:  localhost:5433          (relational database)
+  Web UI:      http://localhost:3000   (Knowledge Graph Explorer)
+  REST API:    http://localhost:8765   (API for integrations)
 
 Environment:
-  Create a .env file from .env.example to customize settings
-  Example: cp .env.example .env && nano .env
+  Create a .env file from .env.example to customize settings:
+    cp .env.example .env && nano .env
+
+  Key variables:
+    POSTGRES_PASSWORD  - Database password (default: memoria_dev)
+    EMBEDDING_MODEL    - Ollama model (default: nomic-embed-text)
 
 Documentation:
   See README.md for detailed configuration and troubleshooting
