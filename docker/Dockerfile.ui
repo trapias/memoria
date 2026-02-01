@@ -37,12 +37,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install Python dependencies
+# Copy Python source first (needed for pip install)
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e "."
-
-# Copy Python source
 COPY src/ ./src/
+
+# Install Python dependencies
+RUN pip install --no-cache-dir "."
 
 # Copy built Next.js app
 COPY --from=frontend-builder /app/web/.next ./web/.next
