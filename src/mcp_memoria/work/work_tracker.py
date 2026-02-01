@@ -4,7 +4,7 @@ Provides high-level operations for time tracking MCP tools.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -246,7 +246,7 @@ class WorkTracker:
             "session_id": str(paused.id),
             "description": paused.description,
             "status": "paused",
-            "paused_at": datetime.now().isoformat(),
+            "paused_at": datetime.now(timezone.utc).isoformat(),
             "reason": reason,
             "elapsed_minutes": self._calculate_elapsed(paused),
         }
@@ -272,7 +272,7 @@ class WorkTracker:
             "session_id": str(resumed.id),
             "description": resumed.description,
             "status": "active",
-            "resumed_at": datetime.now().isoformat(),
+            "resumed_at": datetime.now(timezone.utc).isoformat(),
             "total_pause_minutes": resumed.total_pause_minutes,
         }
 
@@ -327,7 +327,7 @@ class WorkTracker:
             Report data
         """
         # Calculate date range
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         if start_date:
             start = datetime.fromisoformat(start_date)
         else:
@@ -462,7 +462,7 @@ class WorkTracker:
         if session.end_time:
             total = int((session.end_time - session.start_time).total_seconds() / 60)
         else:
-            total = int((datetime.now() - session.start_time).total_seconds() / 60)
+            total = int((datetime.now(timezone.utc) - session.start_time).total_seconds() / 60)
         return total - session.total_pause_minutes
 
     def _calculate_duration(self, session: WorkSession) -> int:

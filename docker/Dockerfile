@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --chown=memoria:memoria pyproject.toml README.md ./
 COPY --chown=memoria:memoria src ./src
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -e .
+# Install Python dependencies (including postgres extra for time tracking)
+RUN pip install --no-cache-dir -e ".[postgres]"
 
 # Create data directories con permessi corretti
 RUN mkdir -p /data/qdrant /data/cache && \

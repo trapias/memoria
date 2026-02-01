@@ -166,6 +166,14 @@ class ProjectRepository:
         )
         return Project(**dict(row)) if row else None
 
+    async def get_by_name(self, name: str) -> Project | None:
+        """Get project by name."""
+        row = await self._db.fetchrow(
+            "SELECT * FROM projects WHERE name = $1",
+            name,
+        )
+        return Project(**dict(row)) if row else None
+
     async def list_by_client(
         self,
         client_id: UUID,

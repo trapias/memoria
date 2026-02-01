@@ -66,6 +66,20 @@ class Client(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def parse_metadata(cls, v: Any) -> dict[str, Any]:
+        """Parse metadata from JSON string or dict."""
+        if v is None:
+            return {}
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return {}
+        return v
+
 
 class Project(BaseModel):
     """Project entity linked to a client."""
@@ -79,6 +93,20 @@ class Project(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now)
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def parse_metadata(cls, v: Any) -> dict[str, Any]:
+        """Parse metadata from JSON string or dict."""
+        if v is None:
+            return {}
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return {}
+        return v
 
 
 class PauseEntry(BaseModel):
