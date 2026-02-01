@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Brain, GitBranch, Home, Settings } from "lucide-react";
+import { Brain, GitBranch, Home, Settings, Sparkles, Database, HardDrive } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Home", icon: Home },
-  { href: "/graph", label: "Knowledge Graph", icon: GitBranch },
+  { href: "/memories", label: "Memories", icon: Database },
+  { href: "/graph", label: "Graph", icon: GitBranch },
+  { href: "/graph/discover", label: "Discover", icon: Sparkles },
+  { href: "/backup", label: "Backup", icon: HardDrive },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

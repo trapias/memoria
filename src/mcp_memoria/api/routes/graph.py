@@ -2,9 +2,9 @@
 Knowledge Graph API endpoints.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Any
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
@@ -100,6 +100,71 @@ class CreateRelationRequest(BaseModel):
 class AcceptSuggestionRequest(BaseModel):
     """Request to accept a suggestion."""
 
+    target_id: str
+    relation_type: str
+
+
+class DiscoverRelationsRequest(BaseModel):
+    """Request to discover relations globally."""
+
+    limit: int = Field(default=50, ge=1, le=200)
+    min_confidence: float = Field(default=0.70, ge=0.0, le=1.0)
+    auto_accept_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
+    skip_with_relations: bool = True
+    memory_types: Optional[List[str]] = None
+
+
+class DiscoverySuggestion(BaseModel):
+    """A suggestion from global discovery."""
+
+    source_id: str
+    source_preview: str
+    source_type: Optional[str]
+    target_id: str
+    target_preview: str
+    target_type: Optional[str]
+    relation_type: str
+    confidence: float
+    reason: str
+    shared_tags: List[str]
+
+
+class DiscoverRelationsResponse(BaseModel):
+    """Response from global discovery."""
+
+    suggestions: List[DiscoverySuggestion]
+    auto_accepted: int
+    scanned_count: int
+    total_without_relations: int
+
+
+class BulkRelationItem(BaseModel):
+    """Single relation for bulk creation."""
+
+    source_id: str
+    target_id: str
+    relation_type: str
+
+
+class BulkRelationsRequest(BaseModel):
+    """Request to create relations in bulk."""
+
+    relations: List[BulkRelationItem]
+    created_by: str = "auto"  # "user" or "auto"
+
+
+class BulkRelationsResponse(BaseModel):
+    """Response from bulk relation creation."""
+
+    created: int
+    duplicates: int
+    errors: int
+
+
+class RejectSuggestionRequest(BaseModel):
+    """Request to reject a suggestion."""
+
+    source_id: str
     target_id: str
     relation_type: str
 
@@ -491,6 +556,144 @@ async def accept_suggestion(
                 metadata=relation.metadata or {},
             ).model_dump(),
         }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Global Discovery Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/discover")
+async def discover_relations(
+    request: Request,
+    body: DiscoverRelationsRequest,
+) -> DiscoverRelationsResponse:
+    """
+    Discover potential relations across all memories.
+
+    Scans memories and suggests relations based on vector similarity
+    and content heuristics. Can auto-accept high-confidence suggestions.
+
+    Args:
+        body: Discovery parameters (limit, confidence thresholds, filters)
+    """
+    graph_manager = get_graph_manager(request)
+
+    # Get rejected suggestions to exclude
+    rejected_pairs: set[tuple[str, str, str]] = set()
+    database = getattr(request.app.state, "database", None)
+    if database:
+        try:
+            from ...db.repositories import RejectedSuggestionRepository
+            rejected_repo = RejectedSuggestionRepository(database)
+            rejected = await rejected_repo.get_all()
+            rejected_pairs = {
+                (str(r["source_id"]), str(r["target_id"]), r["relation_type"])
+                for r in rejected
+            }
+        except Exception:
+            pass  # Repository may not exist yet
+
+    try:
+        result = await graph_manager.discover_relations_global(
+            limit=body.limit,
+            min_confidence=body.min_confidence,
+            auto_accept_threshold=body.auto_accept_threshold,
+            skip_with_relations=body.skip_with_relations,
+            memory_types=body.memory_types,
+            rejected_pairs=rejected_pairs,
+        )
+
+        suggestions = [
+            DiscoverySuggestion(
+                source_id=s["source_id"],
+                source_preview=s["source_preview"],
+                source_type=s.get("source_type"),
+                target_id=s["target_id"],
+                target_preview=s["target_preview"],
+                target_type=s.get("target_type"),
+                relation_type=s["relation_type"],
+                confidence=s["confidence"],
+                reason=s["reason"],
+                shared_tags=s.get("shared_tags", []),
+            )
+            for s in result["suggestions"]
+        ]
+
+        return DiscoverRelationsResponse(
+            suggestions=suggestions,
+            auto_accepted=result["auto_accepted"],
+            scanned_count=result["scanned_count"],
+            total_without_relations=result["total_without_relations"],
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/relations/bulk")
+async def create_relations_bulk(
+    request: Request,
+    body: BulkRelationsRequest,
+) -> BulkRelationsResponse:
+    """
+    Create multiple relations in bulk.
+
+    Args:
+        body: List of relations to create
+    """
+    graph_manager = get_graph_manager(request)
+
+    from ...core.graph_types import RelationCreator
+
+    creator = RelationCreator.AUTO if body.created_by == "auto" else RelationCreator.USER
+
+    try:
+        result = await graph_manager.add_relations_bulk(
+            relations=[r.model_dump() for r in body.relations],
+            created_by=creator,
+        )
+
+        return BulkRelationsResponse(
+            created=result["created"],
+            duplicates=result["duplicates"],
+            errors=result["errors"],
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suggestions/reject")
+async def reject_suggestion(
+    request: Request,
+    body: RejectSuggestionRequest,
+) -> dict:
+    """
+    Reject a suggestion to prevent it from being suggested again.
+
+    Args:
+        body: Suggestion details (source_id, target_id, relation_type)
+    """
+    database = getattr(request.app.state, "database", None)
+    if not database:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not available for storing rejected suggestions",
+        )
+
+    try:
+        from ...db.repositories import RejectedSuggestionRepository
+        repo = RejectedSuggestionRepository(database)
+        await repo.create(
+            source_id=body.source_id,
+            target_id=body.target_id,
+            relation_type=body.relation_type,
+        )
+        return {"status": "rejected"}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

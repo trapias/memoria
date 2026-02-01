@@ -1,4 +1,6 @@
 # MCP Memoria con HTTP/SSE transport
+# Usa questa configurazione quando vuoi eseguire il server Memoria con transport HTTP/SSE
+# per la connessione da Claude Code/Desktop
 #
 # Uso:
 #   cd docker && docker-compose -f docker-compose.http.yml up -d
@@ -13,6 +15,11 @@
 #       }
 #     }
 #   }
+#
+# Note:
+#   - This configuration uses a local Qdrant instance
+#   - For production with PostgreSQL, use docker-compose.central.yml instead
+#   - Ollama must be accessible on host.docker.internal:11434 (or configure MEMORIA_OLLAMA_HOST)
 
 name: memoria-http
 
@@ -34,6 +41,8 @@ services:
       retries: 5
       start_period: 5s
     restart: unless-stopped
+    networks:
+      - memoria-http-network
 
   memoria:
     build:
@@ -61,6 +70,10 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - memoria-http-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   qdrant_data:
@@ -69,5 +82,6 @@ volumes:
     driver: local
 
 networks:
-  default:
+  memoria-http-network:
+    driver: bridge
     name: memoria-http-network

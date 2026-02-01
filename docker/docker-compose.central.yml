@@ -82,7 +82,7 @@ services:
       # - QDRANT__API_KEY=${QDRANT_API_KEY}
 
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:6333/health | grep -q 'ok'"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -156,13 +156,13 @@ services:
 
     environment:
       # Qdrant connection (internal Docker network)
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
+      - MEMORIA_QDRANT_HOST=qdrant
+      - MEMORIA_QDRANT_PORT=6333
       # PostgreSQL connection (internal Docker network)
-      - DATABASE_URL=postgresql://memoria:${POSTGRES_PASSWORD:-memoria_dev}@postgres:5432/memoria
+      - MEMORIA_DATABASE_URL=postgresql://memoria:${POSTGRES_PASSWORD:-memoria_dev}@postgres:5432/memoria
       # Ollama on host for embeddings
-      - OLLAMA_HOST=http://host.docker.internal:11434
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434
+      - MEMORIA_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       # API settings
       - API_PORT=8765
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000

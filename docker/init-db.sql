@@ -176,6 +176,22 @@ CREATE INDEX idx_relations_source_type ON memory_relations(source_id, relation_t
 CREATE INDEX idx_relations_target_type ON memory_relations(target_id, relation_type);
 
 -- ============================================================================
+-- REJECTED SUGGESTIONS (for relation discovery)
+-- ============================================================================
+
+CREATE TABLE rejected_suggestions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_id UUID NOT NULL,
+    target_id UUID NOT NULL,
+    relation_type TEXT NOT NULL,
+    rejected_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (source_id, target_id, relation_type)
+);
+
+CREATE INDEX idx_rejected_suggestions_lookup
+ON rejected_suggestions (source_id, target_id);
+
+-- ============================================================================
 -- USER SETTINGS
 -- ============================================================================
 

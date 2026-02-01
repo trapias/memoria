@@ -4,6 +4,8 @@ Provides high-level data access methods built on top of the Database class.
 Each repository handles CRUD operations for a specific domain entity.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from datetime import datetime
@@ -814,3 +816,63 @@ class ReportRepository:
             )
 
         return [dict(row) for row in rows]
+
+
+class RejectedSuggestionRepository:
+    """Repository for storing rejected relation suggestions."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    async def create(
+        self,
+        source_id: str,
+        target_id: str,
+        relation_type: str,
+    ) -> dict[str, Any]:
+        """Record a rejected suggestion."""
+        row = await self._db.fetchrow(
+            """
+            INSERT INTO rejected_suggestions (source_id, target_id, relation_type)
+            VALUES ($1::uuid, $2::uuid, $3)
+            ON CONFLICT (source_id, target_id, relation_type) DO NOTHING
+            RETURNING *
+            """,
+            source_id,
+            target_id,
+            relation_type,
+        )
+        return dict(row) if row else {"source_id": source_id, "target_id": target_id, "relation_type": relation_type}
+
+    async def get_all(self) -> list[dict[str, Any]]:
+        """Get all rejected suggestions."""
+        rows = await self._db.fetch(
+            "SELECT source_id, target_id, relation_type FROM rejected_suggestions"
+        )
+        return [dict(row) for row in rows]
+
+    async def delete(
+        self,
+        source_id: str,
+        target_id: str,
+        relation_type: str,
+    ) -> bool:
+        """Remove a rejected suggestion (allow it to be suggested again)."""
+        result = await self._db.execute(
+            """
+            DELETE FROM rejected_suggestions
+            WHERE source_id = $1::uuid AND target_id = $2::uuid AND relation_type = $3
+            """,
+            source_id,
+            target_id,
+            relation_type,
+        )
+        return "DELETE 1" in result
+
+    async def clear_all(self) -> int:
+        """Clear all rejected suggestions."""
+        result = await self._db.execute("DELETE FROM rejected_suggestions")
+        try:
+            return int(result.split()[1])
+        except (IndexError, ValueError):
+            return 0

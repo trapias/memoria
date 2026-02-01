@@ -27,12 +27,13 @@ RUN npm run build
 # ═══════════════════════════════════════════════════════════════════════════════
 FROM python:3.12-slim
 
-# Install Node.js and utilities
+# Install Node.js, PostgreSQL client (for migrations), and utilities
 RUN apt-get update && apt-get install -y \
     nodejs \
     npm \
     curl \
     netcat-openbsd \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -50,9 +51,11 @@ COPY --from=frontend-builder /app/web/public ./web/public
 COPY --from=frontend-builder /app/web/package.json ./web/
 COPY --from=frontend-builder /app/web/node_modules ./web/node_modules
 
-# Copy startup script
+# Copy migrations and startup scripts
+COPY docker/migrations/ ./docker/migrations/
+COPY docker/run-migrations.sh ./
 COPY docker/start-ui.sh ./
-RUN chmod +x start-ui.sh
+RUN chmod +x start-ui.sh run-migrations.sh
 
 # Expose ports
 EXPOSE 3000 8765

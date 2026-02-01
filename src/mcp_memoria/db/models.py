@@ -165,6 +165,20 @@ class MemoryRelation(BaseModel):
             return UUID(v)
         return v
 
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def parse_metadata(cls, v: Any) -> dict[str, Any]:
+        """Parse metadata from JSON string or dict."""
+        if v is None:
+            return {}
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return {}
+        return v
+
 
 class UserSetting(BaseModel):
     """Key-value user setting."""

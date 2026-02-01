@@ -23,26 +23,31 @@ trap cleanup SIGTERM SIGINT
 # Wait for dependencies
 echo "Waiting for Qdrant..."
 QDRANT_URL="http://${QDRANT_HOST:-qdrant}:${QDRANT_PORT:-6333}"
-until curl -sf "${QDRANT_URL}/health" > /dev/null 2>&1; do
+until curl -sf "${QDRANT_URL}/" > /dev/null 2>&1; do
     echo "  Qdrant not ready, retrying..."
     sleep 2
 done
 echo "✓ Qdrant is ready at ${QDRANT_URL}"
 
-# Wait for PostgreSQL using DATABASE_URL
-if [ -n "$DATABASE_URL" ]; then
+# Wait for PostgreSQL using MEMORIA_DATABASE_URL
+DB_URL="${MEMORIA_DATABASE_URL:-$DATABASE_URL}"
+if [ -n "$DB_URL" ]; then
     echo "Waiting for PostgreSQL..."
     # Extract host from DATABASE_URL (postgresql://user:pass@host:port/db)
-    PG_HOST=$(echo $DATABASE_URL | sed -E 's|.*@([^:/]+).*|\1|')
-    PG_PORT=$(echo $DATABASE_URL | sed -E 's|.*:([0-9]+)/.*|\1|' || echo "5432")
+    PG_HOST=$(echo $DB_URL | sed -E 's|.*@([^:/]+).*|\1|')
+    PG_PORT=$(echo $DB_URL | sed -E 's|.*:([0-9]+)/.*|\1|' || echo "5432")
 
     until nc -z "$PG_HOST" "$PG_PORT" 2>/dev/null; do
         echo "  PostgreSQL not ready at ${PG_HOST}:${PG_PORT}, retrying..."
         sleep 2
     done
     echo "✓ PostgreSQL is ready at ${PG_HOST}:${PG_PORT}"
+
+    # Run database migrations
+    echo ""
+    /app/run-migrations.sh
 else
-    echo "⚠ DATABASE_URL not set, skipping PostgreSQL check"
+    echo "⚠ DATABASE_URL not set, skipping PostgreSQL check and migrations"
 fi
 
 echo ""

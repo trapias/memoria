@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Brain, GitBranch, Database, Plus } from "lucide-react";
+import { Brain, GitBranch, Database, Sparkles, HardDrive, Search } from "lucide-react";
 import Link from "next/link";
 
 export default function DashboardPage() {
@@ -91,16 +91,50 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>Explore Knowledge Graph</CardTitle>
+            <CardTitle>Browse Memories</CardTitle>
+            <CardDescription>
+              View, search, and edit your memories
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/memories">
+              <Button className="w-full">
+                <Database className="mr-2 h-4 w-4" />
+                Open Memory Browser
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Explore Graph</CardTitle>
             <CardDescription>
               Visualize relationships between memories
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Link href="/graph">
-              <Button className="w-full">
+              <Button className="w-full" variant="outline">
                 <GitBranch className="mr-2 h-4 w-4" />
                 Open Graph Explorer
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Discover Relations</CardTitle>
+            <CardDescription>
+              Auto-find connections between memories
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/graph/discover">
+              <Button className="w-full" variant="outline">
+                <Sparkles className="mr-2 h-4 w-4" />
+                Start Discovery
               </Button>
             </Link>
           </CardContent>
@@ -135,16 +169,33 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Backup & Restore</CardTitle>
+            <CardDescription>
+              Export and import your memories
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/backup">
+              <Button variant="outline" className="w-full">
+                <HardDrive className="mr-2 h-4 w-4" />
+                Backup Settings
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Quick Search</CardTitle>
             <CardDescription>
               Search memories semantically
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/graph">
+            <Link href="/memories">
               <Button variant="outline" className="w-full">
-                <Plus className="mr-2 h-4 w-4" />
-                Search & Explore
+                <Search className="mr-2 h-4 w-4" />
+                Search Memories
               </Button>
             </Link>
           </CardContent>

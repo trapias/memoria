@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Link from "next/link";
+import { Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { GraphCanvas } from "@/components/graph/graph-canvas";
 import { GraphControls } from "@/components/graph/graph-controls";
 import { GraphSidebar } from "@/components/graph/graph-sidebar";
@@ -51,6 +54,12 @@ export default function GraphPage() {
               relationFilter={relationFilter}
               onRelationFilterChange={setRelationFilter}
             />
+            <Link href="/graph/discover">
+              <Button variant="outline" size="sm">
+                <Sparkles className="h-4 w-4 mr-2" />
+                Discover Relations
+              </Button>
+            </Link>
           </div>
         </div>
 

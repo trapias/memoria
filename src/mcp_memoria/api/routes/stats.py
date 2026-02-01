@@ -18,8 +18,8 @@ async def get_stats(request: Request) -> Dict[str, Any]:
     memory_manager = request.app.state.memory_manager
     graph_manager = getattr(request.app.state, "graph_manager", None)
 
-    # Get memory stats
-    memory_stats = await memory_manager.get_stats()
+    # Get memory stats (sync method)
+    memory_stats = memory_manager.get_stats()
 
     # Get relation count from graph manager (if available)
     total_relations = 0
@@ -36,12 +36,15 @@ async def get_stats(request: Request) -> Dict[str, Any]:
         except Exception:
             pass
 
+    # Extract counts from collections dict
+    collections = memory_stats.get("collections", {})
+
     return {
-        "total_memories": memory_stats.get("total", 0),
+        "total_memories": memory_stats.get("total_memories", 0),
         "by_type": {
-            "episodic": memory_stats.get("episodic", 0),
-            "semantic": memory_stats.get("semantic", 0),
-            "procedural": memory_stats.get("procedural", 0),
+            "episodic": collections.get("episodic", {}).get("points_count", 0),
+            "semantic": collections.get("semantic", {}).get("points_count", 0),
+            "procedural": collections.get("procedural", {}).get("points_count", 0),
         },
         "total_relations": total_relations,
     }

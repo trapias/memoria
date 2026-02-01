@@ -967,3 +967,207 @@ class GraphManager:
         except Exception as e:
             logger.error(f"Failed to check relations: {e}")
             return False
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Global Discovery
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def discover_relations_global(
+        self,
+        limit: int = 50,
+        min_confidence: float = 0.70,
+        auto_accept_threshold: float = 0.90,
+        skip_with_relations: bool = True,
+        memory_types: list[str] | None = None,
+        rejected_pairs: set[tuple[str, str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Discover potential relations across all memories.
+
+        Scans memories and suggests relations based on vector similarity
+        and content heuristics. Can auto-accept high-confidence suggestions.
+
+        Args:
+            limit: Maximum suggestions to return
+            min_confidence: Minimum similarity threshold
+            auto_accept_threshold: Auto-accept relations above this confidence
+            skip_with_relations: Only scan memories without existing relations
+            memory_types: Filter by memory types (episodic, semantic, procedural)
+            rejected_pairs: Set of (source_id, target_id, relation_type) to skip
+
+        Returns:
+            Dict with suggestions, auto_accepted count, and scan stats
+        """
+        rejected_pairs = rejected_pairs or set()
+        suggestions: list[dict[str, Any]] = []
+        auto_accepted = 0
+        scanned_count = 0
+        total_without_relations = 0
+
+        try:
+            # Get all memories from Qdrant
+            collections = memory_types or ["semantic", "episodic", "procedural"]
+            all_memories: list[tuple[str, dict[str, Any], str]] = []
+
+            for collection in collections:
+                try:
+                    # Scroll through all points in collection
+                    offset = None
+                    while True:
+                        points, next_offset = await self._qdrant.scroll(
+                            collection=collection,
+                            limit=500,
+                            offset=offset,
+                            with_vectors=False,
+                        )
+                        for point in points:
+                            all_memories.append((point.id, point.payload, collection))
+                        if next_offset is None or len(points) == 0:
+                            break
+                        offset = next_offset
+                except Exception as e:
+                    logger.warning(f"Could not scroll collection {collection}: {e}")
+                    continue
+
+            # Track which memories have relations
+            memories_with_relations: set[str] = set()
+            if skip_with_relations:
+                # Query PostgreSQL for all memory IDs with relations
+                rows = await self._db.fetch(
+                    """
+                    SELECT DISTINCT source_id as memory_id FROM memory_relations
+                    UNION
+                    SELECT DISTINCT target_id as memory_id FROM memory_relations
+                    """
+                )
+                memories_with_relations = {str(row["memory_id"]) for row in rows}
+
+            # Track memories to scan
+            memories_to_scan = [
+                (mid, payload, collection)
+                for mid, payload, collection in all_memories
+                if not skip_with_relations or mid not in memories_with_relations
+            ]
+            total_without_relations = len(memories_to_scan)
+
+            # Deduplicate suggestions (A->B and B->A should count as one)
+            seen_pairs: set[tuple[str, str]] = set()
+
+            for memory_id, payload, collection in memories_to_scan:
+                if len(suggestions) >= limit * 2:  # Buffer for dedup
+                    break
+
+                scanned_count += 1
+
+                try:
+                    # Get suggestions for this memory
+                    memory_suggestions = await self.suggest_relations(
+                        memory_id=memory_id,
+                        limit=5,
+                        min_similarity=min_confidence,
+                        collection=collection,
+                    )
+
+                    for suggestion in memory_suggestions:
+                        # Skip if rejected
+                        reject_key = (memory_id, suggestion.target_id, suggestion.suggested_type.value)
+                        if reject_key in rejected_pairs:
+                            continue
+
+                        # Skip duplicate pairs
+                        pair = tuple(sorted([memory_id, suggestion.target_id]))
+                        if pair in seen_pairs:
+                            continue
+                        seen_pairs.add(pair)
+
+                        # Get shared tags
+                        source_tags = set(payload.get("tags", []))
+                        target_tags = set(suggestion.target_tags)
+                        shared_tags = list(source_tags & target_tags)
+
+                        # Auto-accept high confidence
+                        if suggestion.confidence >= auto_accept_threshold:
+                            try:
+                                await self.add_relation(
+                                    source_id=memory_id,
+                                    target_id=suggestion.target_id,
+                                    relation_type=suggestion.suggested_type,
+                                    created_by=RelationCreator.AUTO,
+                                )
+                                auto_accepted += 1
+                                continue
+                            except Exception as e:
+                                logger.debug(f"Could not auto-accept: {e}")
+
+                        # Add to suggestions
+                        suggestions.append({
+                            "source_id": memory_id,
+                            "source_preview": payload.get("content", "")[:100],
+                            "source_type": collection,
+                            "target_id": suggestion.target_id,
+                            "target_preview": suggestion.target_content[:100],
+                            "target_type": suggestion.target_type,
+                            "relation_type": suggestion.suggested_type.value,
+                            "confidence": suggestion.confidence,
+                            "reason": suggestion.reason,
+                            "shared_tags": shared_tags,
+                        })
+
+                except Exception as e:
+                    logger.debug(f"Could not get suggestions for {memory_id}: {e}")
+                    continue
+
+            # Sort by confidence and limit
+            suggestions.sort(key=lambda x: x["confidence"], reverse=True)
+            suggestions = suggestions[:limit]
+
+            return {
+                "suggestions": suggestions,
+                "auto_accepted": auto_accepted,
+                "scanned_count": scanned_count,
+                "total_without_relations": total_without_relations,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to discover relations: {e}")
+            raise GraphManagerError(f"Failed to discover relations: {e}") from e
+
+    async def add_relations_bulk(
+        self,
+        relations: list[dict[str, str]],
+        created_by: RelationCreator = RelationCreator.AUTO,
+    ) -> dict[str, int]:
+        """Create multiple relations in bulk.
+
+        Args:
+            relations: List of dicts with source_id, target_id, relation_type
+            created_by: Who/what created these relations
+
+        Returns:
+            Dict with created count, duplicates, and errors
+        """
+        created = 0
+        duplicates = 0
+        errors = 0
+
+        for rel in relations:
+            try:
+                await self.add_relation(
+                    source_id=rel["source_id"],
+                    target_id=rel["target_id"],
+                    relation_type=RelationType(rel["relation_type"]),
+                    created_by=created_by,
+                )
+                created += 1
+            except Exception as e:
+                error_str = str(e).lower()
+                if "duplicate" in error_str or "unique" in error_str:
+                    duplicates += 1
+                else:
+                    errors += 1
+                    logger.debug(f"Bulk relation error: {e}")
+
+        return {
+            "created": created,
+            "duplicates": duplicates,
+            "errors": errors,
+        }

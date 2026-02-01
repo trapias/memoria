@@ -12,9 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..config.settings import Settings
 from ..core.memory_manager import MemoryManager
-from ..storage.qdrant_store import QdrantStore
 from ..db import ASYNCPG_AVAILABLE
-from .routes import memories, graph, stats
+from .routes import memories, graph, stats, backup
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +24,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize settings
     settings = Settings()
 
-    # Initialize Qdrant store
-    qdrant_store = QdrantStore(settings)
-
-    # Initialize memory manager
+    # Initialize memory manager (creates its own QdrantStore internally)
     memory_manager = MemoryManager(settings)
 
     # Store in app state
     app.state.settings = settings
     app.state.memory_manager = memory_manager
-    app.state.qdrant_store = qdrant_store
+    app.state.qdrant_store = memory_manager.vector_store
 
     # Initialize GraphManager if PostgreSQL is available
     if ASYNCPG_AVAILABLE and settings.database_url:
@@ -44,7 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             database = Database(settings.database_url)
             await database.connect()
-            graph_manager = GraphManager(database, qdrant_store)
+            graph_manager = GraphManager(database, memory_manager.vector_store)
             app.state.database = database
             app.state.graph_manager = graph_manager
             logger.info("GraphManager initialized with PostgreSQL")
@@ -90,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(memories.router, prefix="/api/memories", tags=["memories"])
     app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
     app.include_router(stats.router, prefix="/api", tags=["stats"])
+    app.include_router(backup.router, prefix="/api/backup", tags=["backup"])
 
     @app.get("/health")
     async def health_check():
