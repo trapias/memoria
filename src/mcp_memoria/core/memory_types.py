@@ -1,11 +1,16 @@
 """Memory type definitions and models."""
 
+import logging
 from datetime import datetime
 from enum import Enum
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+
+from mcp_memoria.utils.datetime_utils import parse_datetime
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryType(str, Enum):
@@ -79,22 +84,6 @@ class MemoryItem(BaseModel):
             "chunk_count",
         }
         metadata = {k: v for k, v in payload.items() if k not in known_fields}
-
-        def parse_datetime(value: Any, field_name: str = "unknown") -> datetime:
-            """Parse datetime from various formats."""
-            try:
-                if value is None:
-                    return datetime.now()
-                if isinstance(value, datetime):
-                    return value
-                if isinstance(value, str):
-                    return datetime.fromisoformat(value)
-                # Log unexpected type
-                logger.error(f"Unexpected type for {field_name}: {type(value).__name__} = {value!r}")
-                return datetime.now()
-            except Exception as e:
-                logger.error(f"Error parsing {field_name}: {type(value).__name__} = {value!r}, error: {e}")
-                raise
 
         # Use full_content if available (chunked memories), else content
         content = payload.get("full_content", payload.get("content", ""))

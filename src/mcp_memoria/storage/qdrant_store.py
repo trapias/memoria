@@ -1,4 +1,4 @@
-"""Qdrant vector store implementation."""
+"""Qdrant vector store implementation with async support."""
 
 import logging
 from pathlib import Path
@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.models import (
     Distance,
     FieldCondition,
@@ -19,6 +19,8 @@ from qdrant_client.models import (
     ScoredPoint,
     VectorParams,
 )
+
+from mcp_memoria.core.rate_limiter import CircuitBreaker, QDRANT_CIRCUIT_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,11 @@ class SearchResult(BaseModel):
 
 
 class QdrantStore:
-    """Qdrant vector store for memory storage."""
+    """Qdrant vector store for memory storage.
+
+    Uses AsyncQdrantClient for true async I/O when connected to a server.
+    Falls back to sync client for local/in-memory mode (wrapped in async).
+    """
 
     def __init__(
         self,
@@ -42,6 +48,7 @@ class QdrantStore:
         port: int = 6333,
         vector_size: int = 768,
         distance: Distance = Distance.COSINE,
+        enable_circuit_breaker: bool = True,
     ):
         """Initialize Qdrant store.
 
@@ -51,23 +58,43 @@ class QdrantStore:
             port: Qdrant server port
             vector_size: Dimension of vectors
             distance: Distance metric
+            enable_circuit_breaker: Enable circuit breaker for remote connections
         """
         self.vector_size = vector_size
         self.distance = distance
+        self._is_async = False
+        self._circuit_breaker: CircuitBreaker | None = None
+
+        # Store for sync operations (collection management)
+        self._sync_client: QdrantClient | None = None
+        # Store for async operations (data operations)
+        self._async_client: AsyncQdrantClient | None = None
 
         if path:
-            # Local mode with persistence
+            # Local mode with persistence - use sync client
             path.mkdir(parents=True, exist_ok=True)
-            self.client = QdrantClient(path=str(path))
+            self._sync_client = QdrantClient(path=str(path))
+            self.client = self._sync_client  # For backward compat
             logger.info(f"Qdrant initialized in local mode at {path}")
         elif host:
-            # Server mode
-            self.client = QdrantClient(host=host, port=port)
-            logger.info(f"Qdrant connected to {host}:{port}")
+            # Server mode - use async client
+            self._async_client = AsyncQdrantClient(host=host, port=port)
+            self._sync_client = QdrantClient(host=host, port=port)
+            self.client = self._sync_client  # For sync operations like collection_exists
+            self._is_async = True
+            if enable_circuit_breaker:
+                self._circuit_breaker = CircuitBreaker("qdrant", QDRANT_CIRCUIT_CONFIG)
+            logger.info(f"Qdrant connected to {host}:{port} (async mode)")
         else:
-            # In-memory mode
-            self.client = QdrantClient(":memory:")
+            # In-memory mode - use sync client
+            self._sync_client = QdrantClient(":memory:")
+            self.client = self._sync_client
             logger.info("Qdrant initialized in memory mode")
+
+    async def close(self) -> None:
+        """Close async client connection."""
+        if self._async_client:
+            await self._async_client.close()
 
     def create_collection(
         self,
@@ -168,17 +195,21 @@ class QdrantStore:
             Point ID
         """
         point_id = id or str(uuid4())
+        point = PointStruct(id=point_id, vector=vector, payload=payload)
 
-        self.client.upsert(
-            collection_name=collection,
-            points=[
-                PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload=payload,
+        if self._is_async and self._async_client:
+            async def _do_upsert():
+                await self._async_client.upsert(
+                    collection_name=collection,
+                    points=[point],
                 )
-            ],
-        )
+
+            if self._circuit_breaker:
+                await self._circuit_breaker.call(_do_upsert)
+            else:
+                await _do_upsert()
+        else:
+            self.client.upsert(collection_name=collection, points=[point])
 
         logger.debug(f"Upserted point {point_id} to {collection}")
         return point_id
@@ -203,18 +234,21 @@ class QdrantStore:
         for vector, payload, point_id in points:
             pid = point_id or str(uuid4())
             ids.append(pid)
-            point_structs.append(
-                PointStruct(
-                    id=pid,
-                    vector=vector,
-                    payload=payload,
-                )
-            )
+            point_structs.append(PointStruct(id=pid, vector=vector, payload=payload))
 
-        self.client.upsert(
-            collection_name=collection,
-            points=point_structs,
-        )
+        if self._is_async and self._async_client:
+            async def _do_upsert():
+                await self._async_client.upsert(
+                    collection_name=collection,
+                    points=point_structs,
+                )
+
+            if self._circuit_breaker:
+                await self._circuit_breaker.call(_do_upsert)
+            else:
+                await _do_upsert()
+        else:
+            self.client.upsert(collection_name=collection, points=point_structs)
 
         logger.debug(f"Upserted {len(points)} points to {collection}")
         return ids
@@ -241,19 +275,32 @@ class QdrantStore:
         Returns:
             List of SearchResults
         """
-        # Build filter
-        qdrant_filter = None
-        if filter_conditions:
-            qdrant_filter = self._build_filter(filter_conditions)
+        qdrant_filter = self._build_filter(filter_conditions) if filter_conditions else None
 
-        response = self.client.query_points(
-            collection_name=collection,
-            query=vector,
-            limit=limit,
-            score_threshold=score_threshold,
-            query_filter=qdrant_filter,
-            with_vectors=with_vectors,
-        )
+        if self._is_async and self._async_client:
+            async def _do_search():
+                return await self._async_client.query_points(
+                    collection_name=collection,
+                    query=vector,
+                    limit=limit,
+                    score_threshold=score_threshold,
+                    query_filter=qdrant_filter,
+                    with_vectors=with_vectors,
+                )
+
+            if self._circuit_breaker:
+                response = await self._circuit_breaker.call(_do_search)
+            else:
+                response = await _do_search()
+        else:
+            response = self.client.query_points(
+                collection_name=collection,
+                query=vector,
+                limit=limit,
+                score_threshold=score_threshold,
+                query_filter=qdrant_filter,
+                with_vectors=with_vectors,
+            )
 
         return [self._scored_point_to_result(r) for r in response.points]
 
@@ -273,16 +320,23 @@ class QdrantStore:
         Returns:
             List of SearchResults
         """
-        points = self.client.retrieve(
-            collection_name=collection,
-            ids=ids,
-            with_vectors=with_vectors,
-        )
+        if self._is_async and self._async_client:
+            points = await self._async_client.retrieve(
+                collection_name=collection,
+                ids=ids,
+                with_vectors=with_vectors,
+            )
+        else:
+            points = self.client.retrieve(
+                collection_name=collection,
+                ids=ids,
+                with_vectors=with_vectors,
+            )
 
         return [
             SearchResult(
                 id=str(p.id),
-                score=1.0,  # Retrieved directly, so perfect match
+                score=1.0,
                 payload=p.payload or {},
                 vector=p.vector if with_vectors else None,
             )
@@ -306,26 +360,44 @@ class QdrantStore:
             Number of points deleted (approximate)
         """
         if ids:
-            self.client.delete(
-                collection_name=collection,
-                points_selector=ids,
-            )
+            if self._is_async and self._async_client:
+                await self._async_client.delete(
+                    collection_name=collection,
+                    points_selector=ids,
+                )
+            else:
+                self.client.delete(
+                    collection_name=collection,
+                    points_selector=ids,
+                )
             logger.debug(f"Deleted {len(ids)} points from {collection}")
             return len(ids)
 
         if filter_conditions:
             qdrant_filter = self._build_filter(filter_conditions)
-            # Count before delete
-            count_before = self.client.count(
-                collection_name=collection,
-                count_filter=qdrant_filter,
-                exact=True,
-            ).count
 
-            self.client.delete(
-                collection_name=collection,
-                points_selector=qdrant_filter,
-            )
+            if self._is_async and self._async_client:
+                count_result = await self._async_client.count(
+                    collection_name=collection,
+                    count_filter=qdrant_filter,
+                    exact=True,
+                )
+                count_before = count_result.count
+                await self._async_client.delete(
+                    collection_name=collection,
+                    points_selector=qdrant_filter,
+                )
+            else:
+                count_before = self.client.count(
+                    collection_name=collection,
+                    count_filter=qdrant_filter,
+                    exact=True,
+                ).count
+                self.client.delete(
+                    collection_name=collection,
+                    points_selector=qdrant_filter,
+                )
+
             logger.debug(f"Deleted ~{count_before} points from {collection} by filter")
             return count_before
 
@@ -349,18 +421,32 @@ class QdrantStore:
         Returns:
             True if successful
         """
-        if merge:
-            self.client.set_payload(
-                collection_name=collection,
-                payload=payload,
-                points=[id],
-            )
+        if self._is_async and self._async_client:
+            if merge:
+                await self._async_client.set_payload(
+                    collection_name=collection,
+                    payload=payload,
+                    points=[id],
+                )
+            else:
+                await self._async_client.overwrite_payload(
+                    collection_name=collection,
+                    payload=payload,
+                    points=[id],
+                )
         else:
-            self.client.overwrite_payload(
-                collection_name=collection,
-                payload=payload,
-                points=[id],
-            )
+            if merge:
+                self.client.set_payload(
+                    collection_name=collection,
+                    payload=payload,
+                    points=[id],
+                )
+            else:
+                self.client.overwrite_payload(
+                    collection_name=collection,
+                    payload=payload,
+                    points=[id],
+                )
 
         logger.debug(f"Updated payload for {id} in {collection}")
         return True
@@ -385,17 +471,24 @@ class QdrantStore:
         Returns:
             Tuple of (results, next_offset)
         """
-        qdrant_filter = None
-        if filter_conditions:
-            qdrant_filter = self._build_filter(filter_conditions)
+        qdrant_filter = self._build_filter(filter_conditions) if filter_conditions else None
 
-        points, next_offset = self.client.scroll(
-            collection_name=collection,
-            limit=limit,
-            offset=offset,
-            scroll_filter=qdrant_filter,
-            with_vectors=with_vectors,
-        )
+        if self._is_async and self._async_client:
+            points, next_offset = await self._async_client.scroll(
+                collection_name=collection,
+                limit=limit,
+                offset=offset,
+                scroll_filter=qdrant_filter,
+                with_vectors=with_vectors,
+            )
+        else:
+            points, next_offset = self.client.scroll(
+                collection_name=collection,
+                limit=limit,
+                offset=offset,
+                scroll_filter=qdrant_filter,
+                with_vectors=with_vectors,
+            )
 
         results = [
             SearchResult(
@@ -425,15 +518,21 @@ class QdrantStore:
         Returns:
             Number of points
         """
-        qdrant_filter = None
-        if filter_conditions:
-            qdrant_filter = self._build_filter(filter_conditions)
+        qdrant_filter = self._build_filter(filter_conditions) if filter_conditions else None
 
-        result = self.client.count(
-            collection_name=collection,
-            count_filter=qdrant_filter,
-            exact=exact,
-        )
+        if self._is_async and self._async_client:
+            result = await self._async_client.count(
+                collection_name=collection,
+                count_filter=qdrant_filter,
+                exact=exact,
+            )
+        else:
+            result = self.client.count(
+                collection_name=collection,
+                count_filter=qdrant_filter,
+                exact=exact,
+            )
+
         return result.count
 
     def _build_filter(self, conditions: dict[str, Any]) -> Filter:
@@ -449,15 +548,16 @@ class QdrantStore:
 
         for key, value in conditions.items():
             if key == "__text_match":
-                # Full-text search on content field
-                must_conditions.append(
-                    FieldCondition(
-                        key="content",
-                        match=MatchText(text=value),
-                    )
-                )
+                # Split into words and create AND conditions for each word
+                # This ensures all words must be present (AND logic)
+                words = value.split()
+                for word in words:
+                    word = word.strip()
+                    if word:
+                        must_conditions.append(
+                            FieldCondition(key="content", match=MatchText(text=word))
+                        )
             elif isinstance(value, dict):
-                # Range filter
                 if "gte" in value or "lte" in value or "gt" in value or "lt" in value:
                     must_conditions.append(
                         FieldCondition(
@@ -471,20 +571,12 @@ class QdrantStore:
                         )
                     )
             elif isinstance(value, list):
-                # Match any
                 must_conditions.append(
-                    FieldCondition(
-                        key=key,
-                        match=MatchAny(any=value),
-                    )
+                    FieldCondition(key=key, match=MatchAny(any=value))
                 )
             else:
-                # Exact match
                 must_conditions.append(
-                    FieldCondition(
-                        key=key,
-                        match=MatchValue(value=value),
-                    )
+                    FieldCondition(key=key, match=MatchValue(value=value))
                 )
 
         return Filter(must=must_conditions)

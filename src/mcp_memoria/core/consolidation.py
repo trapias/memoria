@@ -5,31 +5,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-import numpy as np
-
-from mcp_memoria.core.memory_types import MemoryItem, MemoryType
 from mcp_memoria.storage.qdrant_store import QdrantStore, SearchResult
+from mcp_memoria.utils.datetime_utils import parse_datetime
 
 logger = logging.getLogger(__name__)
-
-
-def parse_datetime(value: Any) -> datetime:
-    """Parse datetime from various formats safely.
-
-    Args:
-        value: Value to parse (string, datetime, or None)
-
-    Returns:
-        datetime object
-    """
-    if value is None:
-        return datetime.now()
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        return datetime.fromisoformat(value)
-    # Fallback for any other type
-    return datetime.now()
 
 
 @dataclass
@@ -413,6 +392,97 @@ class MemoryConsolidator:
                         collection=collection,
                         id=sibling.id,
                         payload=boost_payload,
+                        merge=True,
+                    )
+
+        return new_importance
+
+    async def boost_on_access_batch(
+        self,
+        items: list[tuple[str, str]],
+        boost_amount: float = 0.1,
+        max_importance: float = 1.0,
+    ) -> None:
+        """Boost importance for multiple memories in batch.
+
+        This is more efficient than calling boost_on_access() in a loop,
+        as it batches the operations by collection.
+
+        Args:
+            items: List of (collection, memory_id) tuples
+            boost_amount: Amount to boost importance
+            max_importance: Maximum importance value
+        """
+        if not items:
+            return
+
+        # Group by collection for efficiency
+        by_collection: dict[str, list[str]] = {}
+        for collection, memory_id in items:
+            by_collection.setdefault(collection, []).append(memory_id)
+
+        accessed_at = datetime.now().isoformat()
+
+        for collection, memory_ids in by_collection.items():
+            # Batch fetch all memories at once
+            results = await self.store.get(collection=collection, ids=memory_ids)
+            if not results:
+                continue
+
+            # Build a map for quick lookup
+            results_map = {r.id: r for r in results}
+
+            # Collect all point IDs that need updating (including sibling chunks)
+            all_parent_ids: set[str] = set()
+            for memory_id in memory_ids:
+                if memory_id in results_map:
+                    r = results_map[memory_id]
+                    parent_id = r.payload.get("parent_id", memory_id)
+                    all_parent_ids.add(parent_id)
+
+            # Find all chunks for these parents in one scroll
+            if all_parent_ids:
+                all_points_to_update: list[tuple[str, float, int]] = []
+
+                for parent_id in all_parent_ids:
+                    # Get all chunks for this parent
+                    chunks, _ = await self.store.scroll(
+                        collection=collection,
+                        limit=1000,
+                        filter_conditions={"parent_id": parent_id},
+                    )
+
+                    if chunks:
+                        # Use first chunk's current values
+                        current_importance = chunks[0].payload.get("importance", 0.5)
+                        current_access = chunks[0].payload.get("access_count", 0)
+                        new_importance = min(max_importance, current_importance + boost_amount)
+
+                        for chunk in chunks:
+                            all_points_to_update.append(
+                                (chunk.id, new_importance, current_access + 1)
+                            )
+                    else:
+                        # Non-chunked memory - update directly by parent_id
+                        direct = await self.store.get(collection=collection, ids=[parent_id])
+                        if direct:
+                            current_importance = direct[0].payload.get("importance", 0.5)
+                            current_access = direct[0].payload.get("access_count", 0)
+                            new_importance = min(max_importance, current_importance + boost_amount)
+                            all_points_to_update.append(
+                                (parent_id, new_importance, current_access + 1)
+                            )
+
+                # Update all points
+                for point_id, new_importance, new_access in all_points_to_update:
+                    await self.store.update_payload(
+                        collection=collection,
+                        id=point_id,
+                        payload={
+                            "importance": new_importance,
+                            "access_count": new_access,
+                            "accessed_at": accessed_at,
+                        },
                         merge=True,
                     )
 

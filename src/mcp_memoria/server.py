@@ -323,10 +323,11 @@ class MemoriaServer:
                 result = await self._handle_tool(name, arguments)
                 return [TextContent(type="text", text=result)]
             except Exception as e:
+                # Log full traceback for debugging, but only return safe error message
                 import traceback
-                tb = traceback.format_exc()
-                logger.error(f"Tool {name} failed: {e}\n{tb}")
-                return [TextContent(type="text", text=f"Error: {str(e)}\nTraceback:\n{tb}")]
+                logger.error(f"Tool {name} failed: {e}\n{traceback.format_exc()}")
+                # Return user-friendly error without exposing internal details
+                return [TextContent(type="text", text=f"Error: {str(e)}")]
 
     async def _handle_tool(self, name: str, args: dict[str, Any]) -> str:
         """Handle individual tool calls.

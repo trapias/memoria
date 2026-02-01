@@ -1,5 +1,6 @@
 """Central memory manager coordinating all memory operations."""
 
+import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -182,10 +183,17 @@ class MemoryManager:
             chunk_count = len(chunks)
             base_payload = memory.to_payload()
 
+            # Embed all chunks in parallel for better performance
+            async def embed_chunk(text: str):
+                return await self.embedder.embed(text, text_type="document")
+
+            embedding_results = await asyncio.gather(
+                *[embed_chunk(chunk.text) for chunk in chunks]
+            )
+
             points = []
-            for chunk in chunks:
+            for chunk, embedding_result in zip(chunks, embedding_results, strict=True):
                 chunk_id = _chunk_id(memory.id, chunk.chunk_index)
-                embedding_result = await self.embedder.embed(chunk.text, text_type="document")
                 chunk_payload = {
                     **base_payload,
                     "content": chunk.text,
@@ -294,23 +302,24 @@ class MemoryManager:
             if parent_id not in best_by_parent or sr.score > best_by_parent[parent_id][0].score:
                 best_by_parent[parent_id] = (sr, memory_type)
 
-        # Build deduplicated results
+        # Build deduplicated results and collect items for batch boost
         deduped_results = []
+        boost_items: list[tuple[str, str]] = []
+
         for parent_id, (sr, memory_type) in best_by_parent.items():
             memory = MemoryItem.from_payload(parent_id, sr.payload)
-
-            # Boost importance on access
-            await self.consolidator.boost_on_access(
-                collection=memory_type.value,
-                memory_id=sr.id,
-            )
-
             deduped_results.append(
                 RecallResult(
                     memory=memory,
                     score=sr.score,
                 )
             )
+            # Collect for batch boost instead of individual calls
+            boost_items.append((memory_type.value, sr.id))
+
+        # Boost importance on access in batch (fixes N+1 query)
+        if boost_items:
+            await self.consolidator.boost_on_access_batch(boost_items)
 
         # Sort by score and limit
         deduped_results.sort(key=lambda x: x.score, reverse=True)
@@ -536,10 +545,17 @@ class MemoryManager:
                 base_payload = updated_memory.to_payload()
                 base_payload["updated_at"] = datetime.now().isoformat()
 
+                # Embed all chunks in parallel
+                async def embed_chunk(text: str):
+                    return await self.embedder.embed(text, text_type="document")
+
+                embedding_results = await asyncio.gather(
+                    *[embed_chunk(chunk.text) for chunk in chunks]
+                )
+
                 points = []
-                for chunk in chunks:
+                for chunk, emb in zip(chunks, embedding_results, strict=True):
                     chunk_id = _chunk_id(memory_id, chunk.chunk_index)
-                    emb = await self.embedder.embed(chunk.text, text_type="document")
                     chunk_payload = {
                         **base_payload,
                         "content": chunk.text,

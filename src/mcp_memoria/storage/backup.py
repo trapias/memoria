@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -10,6 +11,58 @@ from mcp_memoria.storage.collections import CollectionManager, MemoryCollection
 from mcp_memoria.storage.qdrant_store import QdrantStore
 
 logger = logging.getLogger(__name__)
+
+
+class PathTraversalError(Exception):
+    """Raised when a path traversal attack is detected."""
+
+    pass
+
+
+def validate_safe_path(path: Path, allowed_dirs: list[Path] | None = None) -> Path:
+    """Validate that a path is safe and doesn't escape allowed directories.
+
+    Args:
+        path: Path to validate
+        allowed_dirs: Optional list of allowed parent directories.
+                     If None, defaults to user's home directory and /tmp.
+
+    Returns:
+        Resolved absolute path
+
+    Raises:
+        PathTraversalError: If path escapes allowed directories
+        ValueError: If path is invalid
+    """
+    # Resolve to absolute path, following symlinks
+    try:
+        resolved = path.resolve()
+    except (OSError, ValueError) as e:
+        raise ValueError(f"Invalid path: {path}") from e
+
+    # Default allowed directories: home and temp
+    if allowed_dirs is None:
+        home = Path.home()
+        allowed_dirs = [
+            home,
+            Path("/tmp"),
+            Path(os.environ.get("TMPDIR", "/tmp")),
+        ]
+
+    # Check if resolved path is under any allowed directory
+    for allowed in allowed_dirs:
+        try:
+            allowed_resolved = allowed.resolve()
+            # Check if resolved path starts with allowed path
+            if resolved == allowed_resolved or allowed_resolved in resolved.parents:
+                return resolved
+        except (OSError, ValueError):
+            continue
+
+    raise PathTraversalError(
+        f"Path '{path}' resolves to '{resolved}' which is outside allowed directories. "
+        f"Allowed: {[str(d) for d in allowed_dirs]}"
+    )
 
 
 class MemoryBackup:
@@ -40,7 +93,13 @@ class MemoryBackup:
 
         Returns:
             Export summary
+
+        Raises:
+            PathTraversalError: If output_path escapes allowed directories
         """
+        # Validate path to prevent path traversal attacks
+        output_path = validate_safe_path(output_path)
+
         types_to_export = memory_types or [m.value for m in MemoryCollection]
         export_data = {
             "version": "1.0",
@@ -92,7 +151,13 @@ class MemoryBackup:
 
         Returns:
             Export summary
+
+        Raises:
+            PathTraversalError: If output_path escapes allowed directories
         """
+        # Validate path to prevent path traversal attacks
+        output_path = validate_safe_path(output_path)
+
         types_to_export = memory_types or [m.value for m in MemoryCollection]
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -136,7 +201,13 @@ class MemoryBackup:
 
         Returns:
             Import summary
+
+        Raises:
+            PathTraversalError: If input_path escapes allowed directories
         """
+        # Validate path to prevent path traversal attacks
+        input_path = validate_safe_path(input_path)
+
         with open(input_path, encoding="utf-8") as f:
             import_data = json.load(f)
 
@@ -209,7 +280,13 @@ class MemoryBackup:
 
         Returns:
             Import summary
+
+        Raises:
+            PathTraversalError: If input_path escapes allowed directories
         """
+        # Validate path to prevent path traversal attacks
+        input_path = validate_safe_path(input_path)
+
         if not merge:
             # Clear all collections first
             for memory_type in MemoryCollection:

@@ -7,6 +7,13 @@ import httpx
 import ollama
 from pydantic import BaseModel
 
+from mcp_memoria.core.rate_limiter import (
+    CircuitBreaker,
+    OLLAMA_CIRCUIT_CONFIG,
+    OLLAMA_RATE_CONFIG,
+    RateLimiter,
+)
+
 if TYPE_CHECKING:
     from mcp_memoria.embeddings.embedding_cache import EmbeddingCache
 
@@ -72,6 +79,7 @@ class OllamaEmbedder:
         model: str = "nomic-embed-text",
         cache: "EmbeddingCache | None" = None,
         timeout: float = 30.0,
+        enable_rate_limiting: bool = True,
     ):
         """Initialize the Ollama embedder.
 
@@ -80,6 +88,7 @@ class OllamaEmbedder:
             model: Model name for embeddings
             cache: Optional embedding cache
             timeout: Request timeout in seconds
+            enable_rate_limiting: Enable rate limiting and circuit breaker
         """
         self.host = host
         self.model = model
@@ -99,6 +108,10 @@ class OllamaEmbedder:
 
         # Configure ollama client
         self._client = ollama.Client(host=host, timeout=httpx.Timeout(timeout))
+
+        # Rate limiting and circuit breaker
+        self._rate_limiter = RateLimiter(OLLAMA_RATE_CONFIG) if enable_rate_limiting else None
+        self._circuit_breaker = CircuitBreaker("ollama", OLLAMA_CIRCUIT_CONFIG) if enable_rate_limiting else None
 
     @property
     def dimensions(self) -> int:
@@ -150,10 +163,20 @@ class OllamaEmbedder:
                     cached=True,
                 )
 
-        # Generate embedding
-        try:
+        # Apply rate limiting
+        if self._rate_limiter:
+            await self._rate_limiter.acquire()
+
+        # Generate embedding with circuit breaker protection
+        async def _do_embed():
             response = self._client.embeddings(model=self.model, prompt=prefixed_text)
-            embedding = response["embedding"]
+            return response["embedding"]
+
+        try:
+            if self._circuit_breaker:
+                embedding = await self._circuit_breaker.call(_do_embed)
+            else:
+                embedding = await _do_embed()
 
             # Store in cache
             if use_cache and self.cache:
