@@ -93,3 +93,4 @@ CLAUDE.md
 # Local docs and testing (not for GitHub)
 docs/
 Testing/
+/.playwright-mcp
