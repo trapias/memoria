@@ -225,6 +225,18 @@ What do you remember about this project?
 | `memoria_path` | Find shortest path between two memories |
 | `memoria_suggest_links` | Get AI-powered relation suggestions |
 
+**Time Tracking Tools** (require PostgreSQL):
+
+| Tool | Description |
+|------|-------------|
+| `memoria_work_start` | Start tracking a work session |
+| `memoria_work_stop` | Stop active session and get duration |
+| `memoria_work_status` | Check if a session is active |
+| `memoria_work_pause` | Pause session (e.g., for breaks) |
+| `memoria_work_resume` | Resume a paused session |
+| `memoria_work_note` | Add notes to active session |
+| `memoria_work_report` | Generate time tracking reports |
+
 ### Example Interactions
 
 #### Storing Different Memory Types
@@ -334,6 +346,41 @@ Import memories from shared-knowledge.json
 4. **Importance levels**: Mention importance for critical information: "This is important: never delete the production database"
 
 5. **Natural language**: You don't need special syntax - just talk naturally about what you want to remember or recall
+
+### Time Tracking
+
+Track time spent on tasks, issues, and projects. Requires PostgreSQL to be configured.
+
+```
+# Start tracking work
+Start working on fixing the login timeout issue for AuthService
+
+# Check status
+What am I working on?
+
+# Add a note
+Note: Found the bug - timeout was set to 10s instead of 30s
+
+# Take a break
+Pause work for lunch
+
+# Resume
+Resume working
+
+# Stop and see duration
+Stop working - fixed by increasing timeout to 30s
+
+# Get reports
+Show me my work report for this week
+How much time did I spend on AuthService this month?
+```
+
+Time tracking supports:
+- **Categories**: coding, review, meeting, support, research, documentation, devops
+- **Clients and Projects**: Track billable hours per client/project
+- **GitHub integration**: Link sessions to issues and PRs
+- **Pause/Resume**: Exclude breaks from work time
+- **Reports**: Aggregate by period, client, project, or category
 
 ## Transport Modes
 

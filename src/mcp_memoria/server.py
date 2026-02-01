@@ -23,14 +23,16 @@ from mcp_memoria.core.memory_manager import MemoryManager
 from mcp_memoria.core.memory_types import MemoryType
 from mcp_memoria.core.graph_types import RelationType, RelationDirection
 
-# Check PostgreSQL availability for graph features
+# Check PostgreSQL availability for graph and work tracking features
 try:
     from mcp_memoria.db import ASYNCPG_AVAILABLE, Database
     from mcp_memoria.core.graph_manager import GraphManager
+    from mcp_memoria.work import WorkTracker
 except ImportError:
     ASYNCPG_AVAILABLE = False
     Database = None
     GraphManager = None
+    WorkTracker = None
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +50,14 @@ class MemoriaServer:
         self.memory_manager = MemoryManager(self.settings)
         self.server = Server("memoria")
 
-        # Initialize GraphManager if PostgreSQL is available
+        # Initialize GraphManager and WorkTracker if PostgreSQL is available
         self.graph_manager: GraphManager | None = None
+        self._work_tracker: "WorkTracker | None" = None
         self._db: Database | None = None
         if ASYNCPG_AVAILABLE and self.settings.database_url:
-            logger.info("PostgreSQL available, graph features enabled")
+            logger.info("PostgreSQL available, graph and work tracking features enabled")
         else:
-            logger.debug("PostgreSQL not configured, graph features disabled")
+            logger.debug("PostgreSQL not configured, graph and work tracking features disabled")
 
         # Register handlers
         self._register_tools()
@@ -464,6 +467,152 @@ class MemoriaServer:
                         "required": ["memory_id"],
                     },
                 ),
+                # Work tracking tools
+                Tool(
+                    name="memoria_work_start",
+                    description="Start tracking a work session. Use to log time spent on tasks, issues, or projects. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "description": {
+                                "type": "string",
+                                "description": "What you're working on",
+                            },
+                            "category": {
+                                "type": "string",
+                                "enum": ["coding", "review", "meeting", "support", "research", "documentation", "devops", "other"],
+                                "default": "coding",
+                                "description": "Type of work",
+                            },
+                            "client": {
+                                "type": "string",
+                                "description": "Client name (optional)",
+                            },
+                            "project": {
+                                "type": "string",
+                                "description": "Project name (optional)",
+                            },
+                            "issue": {
+                                "type": "integer",
+                                "description": "GitHub issue number (optional)",
+                            },
+                            "pr": {
+                                "type": "integer",
+                                "description": "GitHub PR number (optional)",
+                            },
+                            "branch": {
+                                "type": "string",
+                                "description": "Git branch name (optional)",
+                            },
+                        },
+                        "required": ["description"],
+                    },
+                ),
+                Tool(
+                    name="memoria_work_stop",
+                    description="Stop the active work session. Returns duration and session summary. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "session_id": {
+                                "type": "string",
+                                "description": "Session ID to stop (defaults to active session)",
+                            },
+                            "notes": {
+                                "type": "string",
+                                "description": "Notes about what was accomplished",
+                            },
+                        },
+                    },
+                ),
+                Tool(
+                    name="memoria_work_status",
+                    description="Check if a work session is active and get its details. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                    },
+                ),
+                Tool(
+                    name="memoria_work_pause",
+                    description="Pause the active work session (e.g., for lunch break). Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "reason": {
+                                "type": "string",
+                                "description": "Reason for pausing (optional)",
+                            },
+                        },
+                    },
+                ),
+                Tool(
+                    name="memoria_work_resume",
+                    description="Resume a paused work session. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                    },
+                ),
+                Tool(
+                    name="memoria_work_note",
+                    description="Add a note to the active work session. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "note": {
+                                "type": "string",
+                                "description": "Note to add",
+                            },
+                            "session_id": {
+                                "type": "string",
+                                "description": "Session ID (defaults to active session)",
+                            },
+                        },
+                        "required": ["note"],
+                    },
+                ),
+                Tool(
+                    name="memoria_work_report",
+                    description="Generate a time tracking report. Group by client, project, or category. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "period": {
+                                "type": "string",
+                                "enum": ["today", "week", "month", "year", "all"],
+                                "default": "month",
+                                "description": "Time period for report",
+                            },
+                            "start_date": {
+                                "type": "string",
+                                "description": "Custom start date (ISO format)",
+                            },
+                            "end_date": {
+                                "type": "string",
+                                "description": "Custom end date (ISO format)",
+                            },
+                            "group_by": {
+                                "type": "string",
+                                "enum": ["client", "project", "category"],
+                                "description": "Group results by",
+                            },
+                            "client": {
+                                "type": "string",
+                                "description": "Filter by client name",
+                            },
+                            "project": {
+                                "type": "string",
+                                "description": "Filter by project name",
+                            },
+                            "category": {
+                                "type": "string",
+                                "enum": ["coding", "review", "meeting", "support", "research", "documentation", "devops", "other"],
+                                "description": "Filter by category",
+                            },
+                        },
+                    },
+                ),
             ]
 
         @self.server.call_tool()
@@ -707,6 +856,125 @@ class MemoriaServer:
             import json
             return json.dumps([s.model_dump_for_api() for s in suggestions], indent=2)
 
+        # Work tracking tools
+        elif name == "memoria_work_start":
+            wt = await self._get_work_tracker()
+            if not wt:
+                return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
+            result = await wt.start(
+                description=args["description"],
+                category=args.get("category", "coding"),
+                client=args.get("client"),
+                project=args.get("project"),
+                issue_number=args.get("issue"),
+                pr_number=args.get("pr"),
+                branch=args.get("branch"),
+            )
+            if "error" in result:
+                return f"Error: {result['error']}"
+            return (
+                f"Started work session: {result['session_id']}\n"
+                f"  Description: {result['description']}\n"
+                f"  Category: {result['category']}\n"
+                f"  Started at: {result['started_at']}"
+            )
+
+        elif name == "memoria_work_stop":
+            wt = await self._get_work_tracker()
+            if not wt:
+                return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
+            result = await wt.stop(
+                session_id=args.get("session_id"),
+                notes=args.get("notes"),
+            )
+            if "error" in result:
+                return f"Error: {result['error']}"
+            return (
+                f"Stopped work session: {result['session_id']}\n"
+                f"  Description: {result['description']}\n"
+                f"  Duration: {result['duration_formatted']} ({result['duration_minutes']} minutes)\n"
+                f"  Started: {result['started_at']}\n"
+                f"  Ended: {result['ended_at']}"
+            )
+
+        elif name == "memoria_work_status":
+            wt = await self._get_work_tracker()
+            if not wt:
+                return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
+            result = await wt.status()
+            if not result.get("active") and not result.get("paused"):
+                return "No active work session."
+            status = "paused" if result.get("paused") else "active"
+            output = [
+                f"Work session ({status}): {result['session_id']}",
+                f"  Description: {result['description']}",
+                f"  Elapsed: {result.get('elapsed_formatted', f'{result['elapsed_minutes']}m')}",
+            ]
+            if result.get("client"):
+                output.append(f"  Client: {result['client']}")
+            if result.get("project"):
+                output.append(f"  Project: {result['project']}")
+            if result.get("category"):
+                output.append(f"  Category: {result['category']}")
+            return "\n".join(output)
+
+        elif name == "memoria_work_pause":
+            wt = await self._get_work_tracker()
+            if not wt:
+                return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
+            result = await wt.pause(reason=args.get("reason"))
+            if "error" in result:
+                return f"Error: {result['error']}"
+            return f"Paused work session: {result['session_id']}\n  Elapsed: {result['elapsed_minutes']}m"
+
+        elif name == "memoria_work_resume":
+            wt = await self._get_work_tracker()
+            if not wt:
+                return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
+            result = await wt.resume()
+            if "error" in result:
+                return f"Error: {result['error']}"
+            return f"Resumed work session: {result['session_id']}\n  Total pause time: {result['total_pause_minutes']}m"
+
+        elif name == "memoria_work_note":
+            wt = await self._get_work_tracker()
+            if not wt:
+                return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
+            result = await wt.add_note(
+                note=args["note"],
+                session_id=args.get("session_id"),
+            )
+            if "error" in result:
+                return f"Error: {result['error']}"
+            return f"Added note to session {result['session_id']} ({result['total_notes']} notes total)"
+
+        elif name == "memoria_work_report":
+            wt = await self._get_work_tracker()
+            if not wt:
+                return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
+            result = await wt.report(
+                period=args.get("period", "month"),
+                start_date=args.get("start_date"),
+                end_date=args.get("end_date"),
+                group_by=args.get("group_by"),
+                client=args.get("client"),
+                project=args.get("project"),
+                category=args.get("category"),
+            )
+            output = [
+                f"Work Report ({result['period']})",
+                f"  Total: {result['total_hours']} hours ({result['total_sessions']} sessions)",
+            ]
+            if result.get("breakdown"):
+                output.append("\n  Breakdown:")
+                for item in result["breakdown"]:
+                    output.append(f"    {item['group']}: {item['hours']}h ({item['percentage']}%)")
+            if result.get("recent_sessions"):
+                output.append("\n  Recent sessions:")
+                for s in result["recent_sessions"][:5]:
+                    output.append(f"    [{s['date']}] {s['description'][:40]}... ({s['duration_minutes']}m)")
+            return "\n".join(output)
+
         else:
             return f"Unknown tool: {name}"
 
@@ -729,6 +997,26 @@ class MemoriaServer:
             )
 
         return self.graph_manager
+
+    async def _get_work_tracker(self) -> "WorkTracker | None":
+        """Get or initialize the WorkTracker.
+
+        Returns:
+            WorkTracker if PostgreSQL is available, None otherwise
+        """
+        if not ASYNCPG_AVAILABLE or not self.settings.database_url:
+            return None
+
+        # Ensure database is connected
+        if self._db is None:
+            self._db = Database(self.settings.database_url)
+            await self._db.connect(run_migrations=self.settings.db_migrate)
+
+        if self._work_tracker is None:
+            from mcp_memoria.work import WorkTracker
+            self._work_tracker = WorkTracker(self._db)
+
+        return self._work_tracker
 
     def _register_resources(self) -> None:
         """Register MCP resources."""

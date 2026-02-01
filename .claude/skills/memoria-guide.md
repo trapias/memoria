@@ -18,6 +18,18 @@ This skill teaches Claude how to effectively use MCP Memoria for persistent memo
 | `memoria_link` | Create relation between memories |
 | `memoria_related` | Find related memories via graph |
 
+### Time Tracking Tools (requires PostgreSQL)
+
+| Tool | Purpose |
+|------|---------|
+| `memoria_work_start` | Start tracking a work session |
+| `memoria_work_stop` | Stop active session and get duration |
+| `memoria_work_status` | Check if a session is active |
+| `memoria_work_pause` | Pause session (e.g., for breaks) |
+| `memoria_work_resume` | Resume a paused session |
+| `memoria_work_note` | Add notes to active session |
+| `memoria_work_report` | Generate time tracking reports |
+
 ## Memory Types - When to Use Each
 
 ### Episodic (Events & Conversations)
@@ -204,3 +216,86 @@ Access the Knowledge Graph Explorer at http://localhost:3000 to:
 - Explore the knowledge graph
 - Discover and create relations
 - Export/import backups
+
+## Time Tracking
+
+Track time spent on tasks, issues, and projects. Requires PostgreSQL.
+
+### Starting a Work Session
+```
+memoria_work_start(
+  description="Fix login timeout issue",
+  category="coding",
+  client="Acme Corp",
+  project="AuthService",
+  issue=45
+)
+```
+
+Categories: `coding`, `review`, `meeting`, `support`, `research`, `documentation`, `devops`, `other`
+
+### Check Status
+```
+memoria_work_status()
+```
+Returns active session info: elapsed time, client, project, etc.
+
+### Pause/Resume
+```
+# Take a break
+memoria_work_pause(reason="lunch")
+
+# Back to work
+memoria_work_resume()
+```
+
+### Add Notes During Work
+```
+memoria_work_note(note="Found the bug - timeout was 10s instead of 30s")
+```
+
+### Stop Session
+```
+memoria_work_stop(notes="Fixed by increasing timeout to 30s")
+```
+Returns total duration (excluding pauses).
+
+### Generate Reports
+```
+# This month by client
+memoria_work_report(period="month", group_by="client")
+
+# This week by project
+memoria_work_report(period="week", group_by="project")
+
+# Filter by client
+memoria_work_report(period="month", client="Acme Corp")
+
+# Custom date range
+memoria_work_report(start_date="2026-01-01", end_date="2026-01-31", group_by="category")
+```
+
+### Workflow Example
+```
+# Start of coding session
+memoria_work_start(description="Implement OAuth2 flow", project="AuthService", category="coding")
+
+# ... work for a while ...
+
+# Quick note
+memoria_work_note(note="Added refresh token endpoint")
+
+# Lunch break
+memoria_work_pause(reason="lunch")
+
+# Back from lunch
+memoria_work_resume()
+
+# ... more work ...
+
+# End of session
+memoria_work_stop(notes="OAuth2 implementation complete, needs testing")
+
+# Weekly report
+memoria_work_report(period="week", group_by="project")
+```
