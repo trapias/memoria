@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, Suspense } from "react";
+import { useState, useCallback, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Sparkles, Network, Plus } from "lucide-react";
@@ -40,17 +40,33 @@ function GraphPageInner() {
     2
   );
 
+  // Track the last auto-selected centerId to avoid re-selecting on every render
+  const lastAutoSelectedRef = useRef<string | null>(null);
+
+  // Auto-select the center node when subgraph loads (for search selection and URL navigation)
+  useEffect(() => {
+    if (centerId && subgraph && subgraph.nodes.length > 0 && lastAutoSelectedRef.current !== centerId) {
+      const centerNode = subgraph.nodes.find(n => n.id === centerId);
+      if (centerNode) {
+        lastAutoSelectedRef.current = centerId;
+        setSelectedNode(centerNode);
+      }
+    }
+  }, [centerId, subgraph]);
+
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
     setSelectedNode(node);
   }, []);
 
   const handleMemorySelect = useCallback((memoryId: string) => {
+    lastAutoSelectedRef.current = null; // Reset so new center gets auto-selected
     setCenterId(memoryId);
     setShowOverview(false);
     setSelectedNode(null);
   }, []);
 
   const handleShowOverview = useCallback(() => {
+    lastAutoSelectedRef.current = null;
     setCenterId(null);
     setShowOverview(true);
     setSelectedNode(null);
@@ -77,9 +93,9 @@ function GraphPageInner() {
   }, []);
 
   return (
-    <div className="flex h-[calc(100vh-64px)]">
+    <div className="flex h-[calc(100vh-64px)] overflow-hidden">
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Controls */}
         <div className="border-b p-4 bg-background">
           <div className="flex items-center gap-4">
@@ -165,7 +181,7 @@ function GraphPageInner() {
       </div>
 
       {/* Sidebar */}
-      <div className="w-80 border-l bg-background flex flex-col">
+      <div className="w-80 shrink-0 border-l bg-background flex flex-col overflow-y-auto">
         <GraphSidebar
           selectedNode={selectedNode}
           allNodes={activeGraph?.nodes ?? []}

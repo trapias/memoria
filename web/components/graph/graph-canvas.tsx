@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState, useLayoutEffect } from "react";
 import dynamic from "next/dynamic";
 import type { ForceGraphMethods, NodeObject, LinkObject } from "react-force-graph-2d";
 import { GraphNode, GraphEdge } from "@/lib/api";
@@ -54,6 +54,30 @@ export function GraphCanvas({
   const lastClickTime = useRef<number>(0);
   const lastClickedNode = useRef<string | null>(null);
   const DOUBLE_CLICK_DELAY = 300; // ms
+
+  // Track container dimensions for the graph
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+
+  useLayoutEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const { clientWidth, clientHeight } = containerRef.current;
+        if (clientWidth > 0 && clientHeight > 0) {
+          setDimensions({ width: clientWidth, height: clientHeight });
+        }
+      }
+    };
+
+    updateDimensions();
+
+    // Use ResizeObserver for responsive updates
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    return () => resizeObserver.disconnect();
+  }, []);
 
   // Filter edges by relation type if filter is set
   const filteredEdges = useMemo(() => {
@@ -191,6 +215,19 @@ export function GraphCanvas({
     [nodes, onNodeClick, onNodeDoubleClick]
   );
 
+  // Custom pointer area for reliable click detection
+  // This fixes issues with canvas fingerprinting protection in some browsers
+  const paintNodePointerArea = useCallback(
+    (node: NodeObject, color: string, ctx: CanvasRenderingContext2D) => {
+      const size = getNodeSize(node as GraphNodeObject);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(node.x ?? 0, node.y ?? 0, size + 2, 0, 2 * Math.PI, false);
+      ctx.fill();
+    },
+    [getNodeSize]
+  );
+
   // Custom node label rendering (added AFTER default node)
   const drawNodeLabel = useCallback(
     (node: NodeObject, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -237,12 +274,15 @@ export function GraphCanvas({
     <div ref={containerRef} className="w-full h-full">
       <ForceGraph2D
         ref={fgRef}
+        width={dimensions.width}
+        height={dimensions.height}
         graphData={graphData}
         nodeLabel={(node) => (node as GraphNodeObject).label}
         nodeColor={(node) => getNodeColor(node as GraphNodeObject, true)}
         nodeVal={(node) => getNodeSize(node as GraphNodeObject)}
         nodeCanvasObjectMode={() => "after"}
         nodeCanvasObject={drawNodeLabel}
+        nodePointerAreaPaint={paintNodePointerArea}
         linkColor={(link) => getLinkColor(link as GraphLinkObject)}
         linkWidth={(link) => (link as GraphLinkObject).weight * 2}
         linkDirectionalArrowLength={6}
