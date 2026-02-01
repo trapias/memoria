@@ -38,6 +38,8 @@ const RELATION_TYPES = [
   "related",
 ];
 
+const PREVIEW_LENGTH = 200;
+
 export function SuggestionCard({
   suggestion,
   selected,
@@ -47,8 +49,20 @@ export function SuggestionCard({
   disabled = false,
 }: SuggestionCardProps) {
   const [relationType, setRelationType] = useState(suggestion.relation_type);
+  const [sourceExpanded, setSourceExpanded] = useState(false);
+  const [targetExpanded, setTargetExpanded] = useState(false);
   const confidencePercent = Math.round(suggestion.confidence * 100);
   const confidenceColorClass = getConfidenceColor(suggestion.confidence);
+
+  const sourceNeedsExpansion = suggestion.source_preview.length > PREVIEW_LENGTH;
+  const targetNeedsExpansion = suggestion.target_preview.length > PREVIEW_LENGTH;
+
+  const displayedSource = sourceExpanded
+    ? suggestion.source_preview
+    : suggestion.source_preview.slice(0, PREVIEW_LENGTH);
+  const displayedTarget = targetExpanded
+    ? suggestion.target_preview
+    : suggestion.target_preview.slice(0, PREVIEW_LENGTH);
 
   return (
     <Card className={cn(
@@ -107,7 +121,17 @@ export function SuggestionCard({
                 </Badge>
               )}
             </div>
-            <p className="text-sm leading-relaxed">{suggestion.source_preview}</p>
+            <p className="text-sm leading-relaxed">
+              {displayedSource}
+              {sourceNeedsExpansion && (
+                <button
+                  onClick={() => setSourceExpanded(!sourceExpanded)}
+                  className="ml-1 text-primary hover:underline text-xs font-medium"
+                >
+                  {sourceExpanded ? "Show less" : "...Show more"}
+                </button>
+              )}
+            </p>
           </div>
 
           {/* Arrow with relation type */}
@@ -144,7 +168,17 @@ export function SuggestionCard({
                 </Badge>
               )}
             </div>
-            <p className="text-sm leading-relaxed">{suggestion.target_preview}</p>
+            <p className="text-sm leading-relaxed">
+              {displayedTarget}
+              {targetNeedsExpansion && (
+                <button
+                  onClick={() => setTargetExpanded(!targetExpanded)}
+                  className="ml-1 text-primary hover:underline text-xs font-medium"
+                >
+                  {targetExpanded ? "Show less" : "...Show more"}
+                </button>
+              )}
+            </p>
           </div>
         </div>
 

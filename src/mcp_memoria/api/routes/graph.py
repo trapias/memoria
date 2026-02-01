@@ -190,6 +190,61 @@ def get_graph_manager(request: Request):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@router.get("/overview")
+async def get_graph_overview(
+    request: Request,
+    limit: int = 10,
+    depth: int = 2,
+) -> SubgraphResponse:
+    """
+    Get a graph overview showing the most connected memories.
+
+    Returns a subgraph centered on memories with the most relations,
+    useful for showing an initial visualization without requiring a search.
+
+    Args:
+        limit: Maximum number of hub memories to include (1-20)
+        depth: Traversal depth from each hub (1-3)
+    """
+    graph_manager = get_graph_manager(request)
+
+    # Clamp parameters
+    limit = max(1, min(limit, 20))
+    depth = max(1, min(depth, 3))
+
+    try:
+        subgraph = await graph_manager.get_graph_overview(limit=limit, depth=depth)
+
+        nodes = [
+            GraphNodeResponse(
+                id=n.id,
+                label=n.label,
+                type=n.memory_type,
+                importance=n.importance,
+                tags=n.tags,
+                isCenter=n.is_center,
+                depth=n.depth,
+            )
+            for n in subgraph.nodes
+        ]
+
+        edges = [
+            GraphEdgeResponse(
+                source=e.source,
+                target=e.target,
+                type=e.relation_type.value,
+                weight=e.weight,
+                created_by=e.created_by.value,
+            )
+            for e in subgraph.edges
+        ]
+
+        return SubgraphResponse(nodes=nodes, edges=edges)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/subgraph/{center_id}")
 async def get_subgraph(
     request: Request,

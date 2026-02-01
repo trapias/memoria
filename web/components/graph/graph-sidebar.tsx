@@ -12,18 +12,20 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, ArrowLeft, Link2, Eye, Target } from "lucide-react";
+import { ArrowRight, ArrowLeft, Link2, Eye, Target, Plus } from "lucide-react";
 
 interface GraphSidebarProps {
   selectedNode: GraphNode | null;
   onNodeSelect: (node: GraphNode | null) => void;
   onCenterNode: (id: string) => void;
+  onAddRelation?: () => void;
 }
 
 export function GraphSidebar({
   selectedNode,
   onNodeSelect,
   onCenterNode,
+  onAddRelation,
 }: GraphSidebarProps) {
   const { data: memory } = useMemory(selectedNode?.id ?? null);
   const { data: relationsData } = useRelations(selectedNode?.id ?? null);
@@ -89,6 +91,18 @@ export function GraphSidebar({
                 ))}
               </div>
             </div>
+          )}
+
+          {onAddRelation && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full mt-2"
+              onClick={onAddRelation}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Relation from this Memory
+            </Button>
           )}
         </CardContent>
       </Card>

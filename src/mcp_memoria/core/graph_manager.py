@@ -575,14 +575,22 @@ class GraphManager:
                     relation_type=suggested_type,
                 )
 
+                # Calculate composite confidence score
+                confidence = self._calculate_confidence(
+                    base_score=hit.score,
+                    source_payload=source.payload,
+                    target_payload=hit.payload,
+                    relation_type=suggested_type,
+                )
+
                 suggestions.append(
                     RelationSuggestion(
                         target_id=hit.id,
-                        target_content=hit.payload.get("content", "")[:200],
+                        target_content=hit.payload.get("content", "")[:500],
                         target_tags=hit.payload.get("tags", []),
                         target_type=hit.payload.get("memory_type"),
                         suggested_type=suggested_type,
-                        confidence=hit.score,
+                        confidence=confidence,
                         reason=reason,
                     )
                 )
@@ -590,6 +598,8 @@ class GraphManager:
                 if len(suggestions) >= limit:
                     break
 
+            # Sort by confidence after scoring adjustments
+            suggestions.sort(key=lambda s: s.confidence, reverse=True)
             return suggestions
 
         except Exception as e:
@@ -603,8 +613,8 @@ class GraphManager:
     ) -> RelationType:
         """Infer relation type based on content heuristics.
 
-        Analyzes content, tags, and metadata to suggest the most
-        appropriate relation type.
+        Analyzes BOTH source and target content, tags, and metadata
+        to suggest the most appropriate relation type.
 
         Args:
             source_payload: Source memory payload
@@ -618,67 +628,166 @@ class GraphManager:
         source_content = source_payload.get("content", "").lower()
         target_content = target_payload.get("content", "").lower()
 
-        # Check for fix/solution patterns
+        # Keywords for various patterns
         fix_keywords = [
             "fix", "fixed", "soluzione", "risolto", "resolved", "solved",
-            "solution", "workaround", "patch"
+            "solution", "workaround", "patch", "corrected", "remedy"
         ]
         problem_keywords = [
             "bug", "errore", "error", "problema", "problem", "issue",
-            "crash", "fail", "broken"
+            "crash", "fail", "broken", "not working", "exception", "traceback"
         ]
 
-        if any(kw in source_content for kw in fix_keywords):
-            if any(kw in target_content for kw in problem_keywords):
-                return RelationType.FIXES
+        # Check for FIXES pattern (bidirectional)
+        # Source has fix keywords AND target has problem keywords
+        source_has_fix = any(kw in source_content for kw in fix_keywords)
+        target_has_problem = any(kw in target_content for kw in problem_keywords)
+        if source_has_fix and target_has_problem:
+            return RelationType.FIXES
 
-        # Check for causal patterns
-        causal_keywords = [
+        # Reverse: target has fix, source has problem (swap direction mentally)
+        target_has_fix = any(kw in target_content for kw in fix_keywords)
+        source_has_problem = any(kw in source_content for kw in problem_keywords)
+        if source_has_problem and target_has_fix:
+            # This suggests the relation should be reversed, but we can't do that here
+            # So mark as FIXES anyway since they're clearly related
+            return RelationType.FIXES
+
+        # Check for causal patterns (bidirectional)
+        causal_source_keywords = [
             "decision", "decisione", "choose", "decided", "caused", "leads to",
-            "results in", "because"
+            "results in", "because", "therefore", "consequently", "implemented"
         ]
-        if any(kw in source_content for kw in causal_keywords):
+        result_keywords = [
+            "result", "outcome", "consequence", "effect", "impact",
+            "resulted", "caused by", "due to"
+        ]
+
+        source_has_causal = any(kw in source_content for kw in causal_source_keywords)
+        target_has_result = any(kw in target_content for kw in result_keywords)
+        if source_has_causal and target_has_result:
+            return RelationType.CAUSES
+        if source_has_causal:
             return RelationType.CAUSES
 
-        # Check for support/opposition patterns
+        # Check for support/opposition patterns (check both sides)
         oppose_keywords = [
             "however", "but", "although", "instead", "contrary",
-            "tuttavia", "invece", "contrario", "wrong", "incorrect"
+            "tuttavia", "invece", "contrario", "wrong", "incorrect",
+            "disagree", "conflict", "contradicts"
         ]
         support_keywords = [
             "confirms", "supports", "validates", "correct", "agree",
-            "conferma", "supporta", "corretto"
+            "conferma", "supporta", "corretto", "consistent", "aligns with"
         ]
 
-        if any(kw in source_content for kw in oppose_keywords):
+        # Check if source opposes target or target opposes source
+        source_opposes = any(kw in source_content for kw in oppose_keywords)
+        target_opposes = any(kw in target_content for kw in oppose_keywords)
+        if source_opposes or target_opposes:
             return RelationType.OPPOSES
-        if any(kw in source_content for kw in support_keywords):
+
+        source_supports = any(kw in source_content for kw in support_keywords)
+        target_supports = any(kw in target_content for kw in support_keywords)
+        if source_supports or target_supports:
             return RelationType.SUPPORTS
 
         # Check for temporal/supersedes patterns
         supersede_keywords = [
-            "update", "new version", "replace", "deprecated",
-            "aggiornamento", "nuova versione", "sostituisce"
+            "update", "new version", "replace", "deprecated", "obsolete",
+            "aggiornamento", "nuova versione", "sostituisce", "superseded",
+            "outdated", "old version", "previous version"
         ]
-        if any(kw in source_content for kw in supersede_keywords):
+        supersede_source = any(kw in source_content for kw in supersede_keywords)
+        supersede_target = any(kw in target_content for kw in supersede_keywords)
+        if supersede_source or supersede_target:
             return RelationType.SUPERSEDES
 
         # Check for structural patterns
-        if "part of" in source_content or "parte di" in source_content:
+        part_of_keywords = ["part of", "parte di", "belongs to", "component of", "section of"]
+        derives_keywords = ["derived", "deriva", "based on", "extended from", "consolidated"]
+
+        if any(kw in source_content for kw in part_of_keywords):
             return RelationType.PART_OF
-        if "derived" in source_content or "deriva" in source_content:
+        if any(kw in source_content for kw in derives_keywords):
             return RelationType.DERIVES
 
         # Check for temporal patterns based on timestamps
         source_time = source_payload.get("created_at")
         target_time = target_payload.get("created_at")
         if source_time and target_time:
-            # Same project/context and newer = likely follows
-            if source_tags & target_tags and source_time > target_time:
-                return RelationType.FOLLOWS
+            try:
+                # Parse timestamps if they're strings
+                from datetime import datetime
+                if isinstance(source_time, str):
+                    source_time = datetime.fromisoformat(source_time.replace("Z", "+00:00"))
+                if isinstance(target_time, str):
+                    target_time = datetime.fromisoformat(target_time.replace("Z", "+00:00"))
+
+                # Calculate time difference in seconds
+                time_diff = abs((source_time - target_time).total_seconds())
+
+                # If within 1 hour and same tags, likely FOLLOWS
+                if time_diff < 3600 and source_tags & target_tags:
+                    if source_time > target_time:
+                        return RelationType.FOLLOWS
+
+                # Even without shared tags, very close timestamps suggest temporal relation
+                if time_diff < 1800:  # 30 minutes
+                    if source_time > target_time:
+                        return RelationType.FOLLOWS
+            except (ValueError, TypeError, AttributeError):
+                pass  # Couldn't parse timestamps, continue to default
 
         # Default to generic related
         return RelationType.RELATED
+
+    def _calculate_confidence(
+        self,
+        base_score: float,
+        source_payload: dict[str, Any],
+        target_payload: dict[str, Any],
+        relation_type: RelationType,
+    ) -> float:
+        """Calculate composite confidence score with boosts.
+
+        Adjusts the raw vector similarity score based on:
+        - Specific relation type (non-generic types get a boost)
+        - Shared tags between source and target
+        - Same memory type
+
+        Args:
+            base_score: Raw vector similarity score (0-1)
+            source_payload: Source memory payload
+            target_payload: Target memory payload
+            relation_type: Inferred relation type
+
+        Returns:
+            Adjusted confidence score (0-1)
+        """
+        confidence = base_score
+
+        # Boost for specific (non-generic) relation types
+        # If we identified a specific type, we're more confident
+        if relation_type != RelationType.RELATED:
+            confidence = min(1.0, confidence * 1.1)  # 10% boost
+
+        # Boost for shared tags
+        source_tags = set(source_payload.get("tags", []))
+        target_tags = set(target_payload.get("tags", []))
+        shared_tags = source_tags & target_tags
+        if shared_tags:
+            # Each shared tag adds 3% confidence, up to 15%
+            tag_boost = min(0.15, len(shared_tags) * 0.03)
+            confidence = min(1.0, confidence + tag_boost)
+
+        # Boost for same memory type
+        source_type = source_payload.get("memory_type")
+        target_type = target_payload.get("memory_type")
+        if source_type and target_type and source_type == target_type:
+            confidence = min(1.0, confidence + 0.02)  # 2% boost
+
+        return round(confidence, 3)
 
     def _explain_suggestion(
         self,
@@ -912,6 +1021,102 @@ class GraphManager:
         return edges
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Graph Overview
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def get_graph_overview(
+        self,
+        limit: int = 10,
+        depth: int = 2,
+    ) -> Subgraph:
+        """Get graph overview centered on the most-connected memories.
+
+        Useful for showing an initial graph visualization without requiring
+        a search first. Finds memories with the most relations and builds
+        a subgraph from them.
+
+        Args:
+            limit: Maximum number of "hub" memories to include
+            depth: Traversal depth from each hub
+
+        Returns:
+            Subgraph containing the most connected memories and their relations
+        """
+        depth = min(max(depth, 1), 3)  # Clamp to 1-3 for performance
+
+        try:
+            # Find memories with the most relations (incoming + outgoing)
+            rows = await self._db.fetch(
+                """
+                SELECT memory_id, total_count FROM (
+                    SELECT source_id AS memory_id, COUNT(*) as total_count
+                    FROM memory_relations
+                    GROUP BY source_id
+                    UNION ALL
+                    SELECT target_id AS memory_id, COUNT(*) as total_count
+                    FROM memory_relations
+                    GROUP BY target_id
+                ) combined
+                GROUP BY memory_id
+                ORDER BY SUM(total_count) DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+
+            if not rows:
+                # No relations exist yet
+                return Subgraph(
+                    center_id="",
+                    depth=depth,
+                    nodes=[],
+                    edges=[],
+                )
+
+            hub_ids = [str(row["memory_id"]) for row in rows]
+
+            # Collect all memory IDs to include (hubs + their neighbors)
+            all_memory_ids: set[str] = set(hub_ids)
+            all_neighbors: list[dict[str, Any]] = []
+
+            for hub_id in hub_ids[:5]:  # Limit to top 5 hubs to avoid explosion
+                neighbors = await self.get_neighbors(
+                    memory_id=hub_id,
+                    depth=min(depth, 1),  # Shallow depth per hub
+                )
+                for n in neighbors:
+                    all_memory_ids.add(n["memory_id"])
+                    all_neighbors.append(n)
+
+            # Build nodes
+            unique_ids = list(all_memory_ids)
+            nodes = await self._build_nodes(
+                memory_ids=unique_ids,
+                center_id=hub_ids[0] if hub_ids else "",
+                neighbors=all_neighbors,
+            )
+
+            # Mark the top hub as center
+            for node in nodes:
+                if node.id == hub_ids[0]:
+                    node.is_center = True
+                    node.depth = 0
+
+            # Build edges between all nodes in the subgraph
+            edges = await self._build_edges(unique_ids)
+
+            return Subgraph(
+                center_id=hub_ids[0] if hub_ids else "",
+                depth=depth,
+                nodes=nodes,
+                edges=edges,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to get graph overview: {e}")
+            raise GraphManagerError(f"Failed to get graph overview: {e}") from e
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Statistics and Utilities
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -1101,10 +1306,10 @@ class GraphManager:
                         # Add to suggestions
                         suggestions.append({
                             "source_id": memory_id,
-                            "source_preview": payload.get("content", "")[:100],
+                            "source_preview": payload.get("content", "")[:500],
                             "source_type": collection,
                             "target_id": suggestion.target_id,
-                            "target_preview": suggestion.target_content[:100],
+                            "target_preview": suggestion.target_content[:500],
                             "target_type": suggestion.target_type,
                             "relation_type": suggestion.suggested_type.value,
                             "confidence": suggestion.confidence,

@@ -3,6 +3,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, Subgraph, GraphPath, Relation, RelationSuggestion, GraphNode } from "../api";
 
+export function useGraphOverview(enabled: boolean = false, limit: number = 10, depth: number = 2) {
+  return useQuery({
+    queryKey: ["graph-overview", limit, depth],
+    queryFn: () => api.getGraphOverview(limit, depth),
+    enabled,
+  });
+}
+
 export function useSubgraph(centerId: string | null, depth: number = 2) {
   return useQuery({
     queryKey: ["subgraph", centerId, depth],

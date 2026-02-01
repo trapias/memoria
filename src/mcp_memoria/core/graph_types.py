@@ -162,8 +162,8 @@ class RelationSuggestion(BaseModel):
         """Serialize for API responses."""
         return {
             "target_id": self.target_id,
-            "target_content": self.target_content[:200] + "..."
-            if len(self.target_content) > 200
+            "target_content": self.target_content[:500] + "..."
+            if len(self.target_content) > 500
             else self.target_content,
             "target_tags": self.target_tags,
             "target_type": self.target_type,

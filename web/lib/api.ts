@@ -169,6 +169,10 @@ class ApiClient {
   }
 
   // Graph endpoints
+  async getGraphOverview(limit: number = 10, depth: number = 2): Promise<Subgraph> {
+    return this.fetch<Subgraph>(`/api/graph/overview?limit=${limit}&depth=${depth}`);
+  }
+
   async getSubgraph(centerId: string, depth: number = 2): Promise<Subgraph> {
     return this.fetch<Subgraph>(`/api/graph/subgraph/${centerId}?depth=${depth}`);
   }

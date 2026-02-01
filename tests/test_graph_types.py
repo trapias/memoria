@@ -164,7 +164,7 @@ class TestRelationSuggestion:
 
     def test_suggestion_api_serialization(self):
         """Test suggestion API serialization truncates long content."""
-        long_content = "x" * 300
+        long_content = "x" * 600
         suggestion = RelationSuggestion(
             target_id="mem-123",
             target_content=long_content,
@@ -172,7 +172,7 @@ class TestRelationSuggestion:
             confidence=0.7,
         )
         data = suggestion.model_dump_for_api()
-        assert len(data["target_content"]) == 203  # 200 + "..."
+        assert len(data["target_content"]) == 503  # 500 + "..."
 
 
 class TestGraphNode:
