@@ -5,7 +5,7 @@ supporting typed relationships between memories stored in Qdrant.
 Relations are persisted in PostgreSQL for efficient graph traversal.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -81,7 +81,7 @@ class Relation(BaseModel):
     weight: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     created_by: RelationCreator = RelationCreator.USER
     metadata: dict[str, Any] = Field(default_factory=dict)
 
