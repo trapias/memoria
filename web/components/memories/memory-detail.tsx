@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Memory } from "@/lib/api";
 import { MEMORY_TYPE_COLORS } from "@/lib/hooks/use-memories";
 import { cn } from "@/lib/utils";
+import { MarkdownContent } from "@/components/ui/markdown-content";
 
 interface MemoryDetailProps {
   memory: Memory | null;
@@ -114,8 +115,8 @@ export function MemoryDetail({
                 className="font-mono text-sm"
               />
             ) : (
-              <div className="p-3 rounded-md bg-muted/50 whitespace-pre-wrap text-sm">
-                {memory.content}
+              <div className="p-3 rounded-md bg-muted/50">
+                <MarkdownContent content={memory.content} />
               </div>
             )}
           </div>

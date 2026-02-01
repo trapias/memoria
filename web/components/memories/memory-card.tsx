@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Memory } from "@/lib/api";
 import { MEMORY_TYPE_COLORS } from "@/lib/hooks/use-memories";
 import { cn } from "@/lib/utils";
+import { MarkdownContent } from "@/components/ui/markdown-content";
 
 interface MemoryCardProps {
   memory: Memory;
@@ -25,9 +26,6 @@ export function MemoryCard({
   onViewRelations,
 }: MemoryCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const contentPreview = memory.content.length > 200
-    ? memory.content.slice(0, 200) + "..."
-    : memory.content;
 
   const formatDate = (dateStr: string) => {
     try {
@@ -96,9 +94,9 @@ export function MemoryCard({
         </div>
 
         {/* Content */}
-        <p className="text-sm whitespace-pre-wrap mb-3">
-          {isExpanded ? memory.content : contentPreview}
-        </p>
+        <div className={cn("text-sm mb-3", !isExpanded && "line-clamp-5")}>
+          <MarkdownContent content={memory.content} />
+        </div>
         {memory.content.length > 200 && (
           <Button
             variant="link"

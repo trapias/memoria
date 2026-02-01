@@ -16,6 +16,7 @@ import { getConfidenceColor, getConfidenceBadgeVariant } from "@/lib/hooks/use-d
 import { RELATION_COLORS, RELATION_DESCRIPTIONS } from "@/lib/hooks/use-graph";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { MarkdownContent } from "@/components/ui/markdown-content";
 
 interface SuggestionCardProps {
   suggestion: DiscoverySuggestion;
@@ -56,13 +57,6 @@ export function SuggestionCard({
 
   const sourceNeedsExpansion = suggestion.source_preview.length > PREVIEW_LENGTH;
   const targetNeedsExpansion = suggestion.target_preview.length > PREVIEW_LENGTH;
-
-  const displayedSource = sourceExpanded
-    ? suggestion.source_preview
-    : suggestion.source_preview.slice(0, PREVIEW_LENGTH);
-  const displayedTarget = targetExpanded
-    ? suggestion.target_preview
-    : suggestion.target_preview.slice(0, PREVIEW_LENGTH);
 
   return (
     <Card className={cn(
@@ -121,17 +115,17 @@ export function SuggestionCard({
                 </Badge>
               )}
             </div>
-            <p className="text-sm leading-relaxed">
-              {displayedSource}
-              {sourceNeedsExpansion && (
-                <button
-                  onClick={() => setSourceExpanded(!sourceExpanded)}
-                  className="ml-1 text-primary hover:underline text-xs font-medium"
-                >
-                  {sourceExpanded ? "Show less" : "...Show more"}
-                </button>
-              )}
-            </p>
+            <div className={cn(!sourceExpanded && "line-clamp-4")}>
+              <MarkdownContent content={suggestion.source_preview} />
+            </div>
+            {sourceNeedsExpansion && (
+              <button
+                onClick={() => setSourceExpanded(!sourceExpanded)}
+                className="mt-1 text-primary hover:underline text-xs font-medium"
+              >
+                {sourceExpanded ? "Show less" : "Show more"}
+              </button>
+            )}
           </div>
 
           {/* Arrow with relation type */}
@@ -168,17 +162,17 @@ export function SuggestionCard({
                 </Badge>
               )}
             </div>
-            <p className="text-sm leading-relaxed">
-              {displayedTarget}
-              {targetNeedsExpansion && (
-                <button
-                  onClick={() => setTargetExpanded(!targetExpanded)}
-                  className="ml-1 text-primary hover:underline text-xs font-medium"
-                >
-                  {targetExpanded ? "Show less" : "...Show more"}
-                </button>
-              )}
-            </p>
+            <div className={cn(!targetExpanded && "line-clamp-4")}>
+              <MarkdownContent content={suggestion.target_preview} />
+            </div>
+            {targetNeedsExpansion && (
+              <button
+                onClick={() => setTargetExpanded(!targetExpanded)}
+                className="mt-1 text-primary hover:underline text-xs font-medium"
+              >
+                {targetExpanded ? "Show less" : "Show more"}
+              </button>
+            )}
           </div>
         </div>
 

@@ -13,6 +13,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, ArrowLeft, Link2, Eye, Target, Plus } from "lucide-react";
+import { MarkdownContent } from "@/components/ui/markdown-content";
+
+// Strip markdown syntax from labels for display as plain titles
+function cleanLabel(label: string): string {
+  return label
+    .replace(/^#+\s*/, "")      // Remove heading prefixes
+    .replace(/\*\*(.+?)\*\*/g, "$1") // Remove bold
+    .replace(/\*(.+?)\*/g, "$1")     // Remove italic
+    .replace(/`(.+?)`/g, "$1")       // Remove inline code
+    .trim();
+}
 
 interface GraphSidebarProps {
   selectedNode: GraphNode | null;
@@ -29,10 +40,10 @@ export function GraphSidebar({
   onCenterNode,
   onAddRelation,
 }: GraphSidebarProps) {
-  // Helper to get node label by ID
+  // Helper to get node label by ID (cleaned from markdown)
   const getNodeLabel = (id: string): string => {
     const node = allNodes.find((n) => n.id === id);
-    return node?.label ?? id.slice(0, 8) + "...";
+    return node ? cleanLabel(node.label) : id.slice(0, 8) + "...";
   };
 
   // Helper to navigate to a related node
@@ -70,7 +81,7 @@ export function GraphSidebar({
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg truncate">
-              {selectedNode.label}
+              {cleanLabel(selectedNode.label)}
             </CardTitle>
             <Button
               variant="ghost"
@@ -94,7 +105,9 @@ export function GraphSidebar({
           {memory?.content && (
             <div>
               <p className="text-sm text-muted-foreground mb-1">Content</p>
-              <p className="text-sm line-clamp-4">{memory.content}</p>
+              <div className="line-clamp-6">
+                <MarkdownContent content={memory.content} />
+              </div>
             </div>
           )}
 
