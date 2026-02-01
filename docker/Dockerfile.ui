@@ -1,0 +1,65 @@
+# Memoria Web UI + REST API Container
+#
+# This Dockerfile builds a container that runs:
+#   - Next.js Web UI on port 3000
+#   - FastAPI REST API on port 8765
+#
+# Build: docker build -f docker/Dockerfile.ui -t memoria-ui ..
+# Run:   docker run -p 3000:3000 -p 8765:8765 memoria-ui
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Stage 1: Build Next.js frontend
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app/web
+
+# Install dependencies first (better caching)
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+
+# Copy source and build
+COPY web/ ./
+RUN npm run build
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Stage 2: Production image with Python + Node
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM python:3.12-slim
+
+# Install Node.js and utilities
+RUN apt-get update && apt-get install -y \
+    nodejs \
+    npm \
+    curl \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir -e "."
+
+# Copy Python source
+COPY src/ ./src/
+
+# Copy built Next.js app
+COPY --from=frontend-builder /app/web/.next ./web/.next
+COPY --from=frontend-builder /app/web/public ./web/public
+COPY --from=frontend-builder /app/web/package.json ./web/
+COPY --from=frontend-builder /app/web/node_modules ./web/node_modules
+
+# Copy startup script
+COPY docker/start-ui.sh ./
+RUN chmod +x start-ui.sh
+
+# Expose ports
+EXPOSE 3000 8765
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:3000 && curl -f http://localhost:8765/health || exit 1
+
+# Start both services
+CMD ["./start-ui.sh"]

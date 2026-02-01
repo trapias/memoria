@@ -116,64 +116,69 @@ services:
       description: "PostgreSQL relational database"
       component: "storage"
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # ⚠️  WARNING: HTTP SERVER - FOR TESTING/DEVELOPMENT ONLY
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # WEB UI + REST API
+  # ═══════════════════════════════════════════════════════════════════════════════
   #
-  # A shared HTTP server is NOT recommended for multi-client production use.
+  # The Web UI provides:
+  #   - Dashboard with memory stats
+  #   - Knowledge Graph Explorer with interactive visualization
+  #   - Memory browser with semantic search
+  #   - Settings and system info
   #
-  # PROBLEMS with shared HTTP server:
-  #   - WorkingMemory is shared across ALL sessions
-  #   - Risk of context confusion between different users
-  #   - No session isolation
+  # The REST API (port 8765) provides:
+  #   - Full CRUD for memories
+  #   - Graph operations (relations, traversal, suggestions)
+  #   - Stats and health endpoints
   #
-  # USE ONLY for:
-  #   - Local testing during development
-  #   - Single-user scenarios where local Memoria installation is not possible
-  #   - Demos and proof-of-concept
-  #
-  # FOR PRODUCTION: Each Claude Code instance should have its own local
-  # Memoria process (stdio transport) that connects to the centralized databases.
-  #
-  # memoria:
-  #   build:
-  #     context: ..
-  #     dockerfile: docker/Dockerfile
-  #   container_name: memoria-http
-  #
-  #   ports:
-  #     - "8765:8765"
-  #
-  #   environment:
-  #     - MEMORIA_HTTP_PORT=8765
-  #     - MEMORIA_HTTP_HOST=0.0.0.0
-  #     - MEMORIA_QDRANT_HOST=qdrant
-  #     - MEMORIA_QDRANT_PORT=6333
-  #     - MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434
-  #     - MEMORIA_LOG_LEVEL=INFO
-  #
-  #   volumes:
-  #     - memoria_cache:/data/cache
-  #
-  #   depends_on:
-  #     qdrant:
-  #       condition: service_healthy
-  #     postgres:
-  #       condition: service_healthy
-  #
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #     start_period: 10s
-  #
-  #   restart: unless-stopped
-  #   networks:
-  #     - memoria-network
-  #
-  #   extra_hosts:
-  #     - "host.docker.internal:host-gateway"
+  memoria-ui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    container_name: memoria-ui
+
+    ports:
+      - "3000:3000"   # Next.js Web UI
+      - "8765:8765"   # REST API
+
+    environment:
+      # Qdrant connection (internal Docker network)
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # PostgreSQL connection (internal Docker network)
+      - DATABASE_URL=postgresql://memoria:${POSTGRES_PASSWORD:-memoria_dev}@postgres:5432/memoria
+      # Ollama on host for embeddings
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      # API settings
+      - API_PORT=8765
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      # Next.js
+      - NEXT_PUBLIC_API_URL=http://localhost:8765
+
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    restart: unless-stopped
+    networks:
+      - memoria-network
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    labels:
+      description: "Memoria Web UI + REST API"
+      component: "ui"
 
 volumes:
   qdrant_data:
