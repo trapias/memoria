@@ -30,7 +30,7 @@ class TestTextChunker:
 
     def test_short_text_single_chunk(self):
         """Test that short text returns a single chunk."""
-        chunker = TextChunker(ChunkingConfig(chunk_size=500))
+        chunker = TextChunker(ChunkingConfig(chunk_size=500, min_chunk_size=10))
         chunks = chunker.chunk("This is a short text.")
 
         assert len(chunks) == 1
@@ -66,7 +66,7 @@ class TestTextChunker:
 
     def test_whitespace_normalization(self):
         """Test that whitespace is normalized."""
-        chunker = TextChunker()
+        chunker = TextChunker(ChunkingConfig(min_chunk_size=10))
         text = "Text   with    extra    spaces"
         chunks = chunker.chunk(text)
 

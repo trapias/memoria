@@ -1,0 +1,189 @@
+# Memoria Dual-Database Architecture
+# Central docker-compose for Qdrant (vectors) + PostgreSQL (relational)
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# RECOMMENDED PRODUCTION ARCHITECTURE
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# This file configures the SHARED DATABASES (Qdrant + PostgreSQL).
+# Claude Code clients should run Memoria as a LOCAL PROCESS (stdio),
+# NOT as a shared HTTP server.
+#
+#   ┌─────────────────┐     ┌─────────────────┐
+#   │  Claude Code 1  │     │  Claude Code 2  │     (different devices)
+#   │       │         │     │       │         │
+#   │  ┌────▼────┐    │     │  ┌────▼────┐    │
+#   │  │ Memoria │    │     │  │ Memoria │    │     ← SEPARATE PROCESSES (stdio)
+#   │  │ (local) │    │     │  │ (local) │    │       Isolated WorkingMemory
+#   │  └────┬────┘    │     │  └────┬────┘    │
+#   └───────┼─────────┘     └───────┼─────────┘
+#           │                       │
+#           └───────────┬───────────┘
+#                       │
+#           ┌───────────▼───────────┐
+#           │   Central Docker      │
+#           │  ┌─────┐  ┌────────┐  │
+#           │  │Qdrant│  │PostgreSQL│ │  ← THIS FILE
+#           │  └─────┘  └────────┘  │
+#           └───────────────────────┘
+#
+# This architecture ensures:
+#   - Isolated WorkingMemory for each Claude session
+#   - No risk of context confusion between sessions/users
+#   - Shared persistent storage for long-term memories
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Usage:
+#   cd docker && docker-compose -f docker-compose.central.yml up -d
+#
+# Environment variables:
+#   POSTGRES_PASSWORD - Database password (default: memoria_dev)
+#   QDRANT_API_KEY - Qdrant API key (optional, for security)
+#
+# Services:
+#   - qdrant: Vector database on :6333/:6334
+#   - postgres: Relational database on :5432
+#
+# Networks:
+#   - All services on 'memoria' network for inter-service communication
+
+name: memoria
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: memoria-qdrant
+
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC
+
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      # Optional: API security
+      # - QDRANT__API_KEY=${QDRANT_API_KEY}
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:6333/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - memoria-network
+
+    labels:
+      description: "Qdrant vector database"
+      component: "storage"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: memoria-postgres
+
+    ports:
+      - "5433:5432"  # Use 5433 externally to avoid conflicts with existing postgres
+
+    environment:
+      POSTGRES_USER: memoria
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memoria_dev}
+      POSTGRES_DB: memoria
+      POSTGRES_INITDB_ARGS: "-c shared_buffers=256MB -c max_connections=100"
+
+    volumes:
+      - memoria-postgres-data:/var/lib/postgresql/data
+      # Initialize database with schema on first run
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memoria -d memoria"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - memoria-network
+
+    labels:
+      description: "PostgreSQL relational database"
+      component: "storage"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ⚠️  WARNING: HTTP SERVER - FOR TESTING/DEVELOPMENT ONLY
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # A shared HTTP server is NOT recommended for multi-client production use.
+  #
+  # PROBLEMS with shared HTTP server:
+  #   - WorkingMemory is shared across ALL sessions
+  #   - Risk of context confusion between different users
+  #   - No session isolation
+  #
+  # USE ONLY for:
+  #   - Local testing during development
+  #   - Single-user scenarios where local Memoria installation is not possible
+  #   - Demos and proof-of-concept
+  #
+  # FOR PRODUCTION: Each Claude Code instance should have its own local
+  # Memoria process (stdio transport) that connects to the centralized databases.
+  #
+  # memoria:
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile
+  #   container_name: memoria-http
+  #
+  #   ports:
+  #     - "8765:8765"
+  #
+  #   environment:
+  #     - MEMORIA_HTTP_PORT=8765
+  #     - MEMORIA_HTTP_HOST=0.0.0.0
+  #     - MEMORIA_QDRANT_HOST=qdrant
+  #     - MEMORIA_QDRANT_PORT=6333
+  #     - MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434
+  #     - MEMORIA_LOG_LEVEL=INFO
+  #
+  #   volumes:
+  #     - memoria_cache:/data/cache
+  #
+  #   depends_on:
+  #     qdrant:
+  #       condition: service_healthy
+  #     postgres:
+  #       condition: service_healthy
+  #
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 10s
+  #
+  #   restart: unless-stopped
+  #   networks:
+  #     - memoria-network
+  #
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+
+volumes:
+  qdrant_data:
+    driver: local
+  memoria-postgres-data:
+    driver: local
+  # memoria_cache:
+  #   driver: local
+
+networks:
+  memoria-network:
+    external: true
+    name: memoria-network

@@ -21,6 +21,16 @@ from starlette.routing import Mount, Route
 from mcp_memoria.config.settings import Settings, get_settings
 from mcp_memoria.core.memory_manager import MemoryManager
 from mcp_memoria.core.memory_types import MemoryType
+from mcp_memoria.core.graph_types import RelationType, RelationDirection
+
+# Check PostgreSQL availability for graph features
+try:
+    from mcp_memoria.db import ASYNCPG_AVAILABLE, Database
+    from mcp_memoria.core.graph_manager import GraphManager
+except ImportError:
+    ASYNCPG_AVAILABLE = False
+    Database = None
+    GraphManager = None
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +47,14 @@ class MemoriaServer:
         self.settings = settings or get_settings()
         self.memory_manager = MemoryManager(self.settings)
         self.server = Server("memoria")
+
+        # Initialize GraphManager if PostgreSQL is available
+        self.graph_manager: GraphManager | None = None
+        self._db: Database | None = None
+        if ASYNCPG_AVAILABLE and self.settings.database_url:
+            logger.info("PostgreSQL available, graph features enabled")
+        else:
+            logger.debug("PostgreSQL not configured, graph features disabled")
 
         # Register handlers
         self._register_tools()
@@ -314,6 +332,138 @@ class MemoriaServer:
                         },
                     },
                 ),
+                # Graph tools (require PostgreSQL)
+                Tool(
+                    name="memoria_link",
+                    description="Create a relationship between two memories. Use to connect related info, mark cause-effect, or link problems to solutions. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "source_id": {
+                                "type": "string",
+                                "description": "ID of the source memory",
+                            },
+                            "target_id": {
+                                "type": "string",
+                                "description": "ID of the target memory",
+                            },
+                            "relation_type": {
+                                "type": "string",
+                                "enum": ["causes", "fixes", "supports", "opposes", "follows", "supersedes", "derives", "part_of", "related"],
+                                "description": "Type of relationship",
+                            },
+                            "weight": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                                "default": 1.0,
+                                "description": "Strength of relationship (0-1)",
+                            },
+                        },
+                        "required": ["source_id", "target_id", "relation_type"],
+                    },
+                ),
+                Tool(
+                    name="memoria_unlink",
+                    description="Remove a relationship between two memories. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "source_id": {
+                                "type": "string",
+                                "description": "ID of the source memory",
+                            },
+                            "target_id": {
+                                "type": "string",
+                                "description": "ID of the target memory",
+                            },
+                            "relation_type": {
+                                "type": "string",
+                                "enum": ["causes", "fixes", "supports", "opposes", "follows", "supersedes", "derives", "part_of", "related"],
+                                "description": "Type to remove (removes all if omitted)",
+                            },
+                        },
+                        "required": ["source_id", "target_id"],
+                    },
+                ),
+                Tool(
+                    name="memoria_related",
+                    description="Find memories related to a given memory through the knowledge graph. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "memory_id": {
+                                "type": "string",
+                                "description": "ID of the memory to find relations for",
+                            },
+                            "depth": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 5,
+                                "default": 1,
+                                "description": "How many hops to traverse",
+                            },
+                            "relation_types": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Filter by relation types",
+                            },
+                            "direction": {
+                                "type": "string",
+                                "enum": ["out", "in", "both"],
+                                "default": "both",
+                                "description": "Direction to traverse",
+                            },
+                        },
+                        "required": ["memory_id"],
+                    },
+                ),
+                Tool(
+                    name="memoria_path",
+                    description="Find the shortest path between two memories in the knowledge graph. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "from_id": {
+                                "type": "string",
+                                "description": "Starting memory ID",
+                            },
+                            "to_id": {
+                                "type": "string",
+                                "description": "Target memory ID",
+                            },
+                            "max_depth": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10,
+                                "default": 5,
+                                "description": "Maximum path length",
+                            },
+                        },
+                        "required": ["from_id", "to_id"],
+                    },
+                ),
+                Tool(
+                    name="memoria_suggest_links",
+                    description="Get AI-powered suggestions for relationships based on content similarity. Requires PostgreSQL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "memory_id": {
+                                "type": "string",
+                                "description": "Memory to find suggestions for",
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 20,
+                                "default": 5,
+                                "description": "Maximum suggestions to return",
+                            },
+                        },
+                        "required": ["memory_id"],
+                    },
+                ),
             ]
 
         @self.server.call_tool()
@@ -483,8 +633,102 @@ class MemoriaServer:
                 self.memory_manager.working_memory.set_current_file(args["file"])
             return "Context updated."
 
+        # Graph tools
+        elif name == "memoria_link":
+            gm = await self._get_graph_manager()
+            if not gm:
+                return "Error: Graph features require PostgreSQL. Set MEMORIA_DATABASE_URL."
+            relation = await gm.add_relation(
+                source_id=args["source_id"],
+                target_id=args["target_id"],
+                relation_type=RelationType(args["relation_type"]),
+                weight=args.get("weight", 1.0),
+            )
+            return f"Created {args['relation_type']} relation: {args['source_id']} → {args['target_id']}"
+
+        elif name == "memoria_unlink":
+            gm = await self._get_graph_manager()
+            if not gm:
+                return "Error: Graph features require PostgreSQL. Set MEMORIA_DATABASE_URL."
+            count = await gm.remove_relation(
+                source_id=args["source_id"],
+                target_id=args["target_id"],
+                relation_type=RelationType(args["relation_type"]) if args.get("relation_type") else None,
+            )
+            return f"Removed {count} relation(s): {args['source_id']} → {args['target_id']}"
+
+        elif name == "memoria_related":
+            gm = await self._get_graph_manager()
+            if not gm:
+                return "Error: Graph features require PostgreSQL. Set MEMORIA_DATABASE_URL."
+            neighbors = await gm.get_neighbors(
+                memory_id=args["memory_id"],
+                depth=args.get("depth", 1),
+                relation_types=[RelationType(t) for t in args.get("relation_types", [])] if args.get("relation_types") else None,
+            )
+            if not neighbors:
+                return f"No related memories found for {args['memory_id']}"
+
+            output = [f"Found {len(neighbors)} related memories:\n"]
+            for n in neighbors:
+                output.append(
+                    f"  - {n['memory_id']} ({n['relation_type']}, depth={n['depth']})"
+                )
+            return "\n".join(output)
+
+        elif name == "memoria_path":
+            gm = await self._get_graph_manager()
+            if not gm:
+                return "Error: Graph features require PostgreSQL. Set MEMORIA_DATABASE_URL."
+            path = await gm.find_path(
+                from_id=args["from_id"],
+                to_id=args["to_id"],
+                max_depth=args.get("max_depth", 5),
+            )
+            if path is None:
+                return f"No path found between {args['from_id']} and {args['to_id']}"
+
+            output = [f"Path found ({len(path.steps)} steps):\n"]
+            for step in path.steps:
+                output.append(f"  {step.memory_id} --[{step.relation_type}]--> ")
+            return "\n".join(output)
+
+        elif name == "memoria_suggest_links":
+            gm = await self._get_graph_manager()
+            if not gm:
+                return "Error: Graph features require PostgreSQL. Set MEMORIA_DATABASE_URL."
+            suggestions = await gm.suggest_relations(
+                memory_id=args["memory_id"],
+                limit=args.get("limit", 5),
+            )
+            if not suggestions:
+                return f"No relation suggestions found for {args['memory_id']}"
+
+            import json
+            return json.dumps([s.model_dump_for_api() for s in suggestions], indent=2)
+
         else:
             return f"Unknown tool: {name}"
+
+    async def _get_graph_manager(self) -> "GraphManager | None":
+        """Get or initialize the GraphManager.
+
+        Returns:
+            GraphManager if PostgreSQL is available, None otherwise
+        """
+        if not ASYNCPG_AVAILABLE or not self.settings.database_url:
+            return None
+
+        if self.graph_manager is None:
+            # Lazy initialization
+            self._db = Database(self.settings.database_url)
+            await self._db.connect(run_migrations=self.settings.db_migrate)
+            self.graph_manager = GraphManager(
+                db=self._db,
+                qdrant_store=self.memory_manager.vector_store,
+            )
+
+        return self.graph_manager
 
     def _register_resources(self) -> None:
         """Register MCP resources."""

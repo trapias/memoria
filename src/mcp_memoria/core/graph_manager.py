@@ -1,0 +1,969 @@
+"""Graph manager for knowledge graph operations.
+
+Manages relations between memories using PostgreSQL for graph storage
+and Qdrant for memory content retrieval. Supports efficient traversal
+via WITH RECURSIVE queries.
+"""
+
+import logging
+from typing import Any
+from uuid import UUID
+
+from mcp_memoria.core.graph_types import (
+    GraphEdge,
+    GraphNode,
+    GraphPath,
+    PathStep,
+    Relation,
+    RelationCreator,
+    RelationDirection,
+    RelationSuggestion,
+    RelationType,
+    RelationWithContext,
+    Subgraph,
+)
+from mcp_memoria.db import ASYNCPG_AVAILABLE
+from mcp_memoria.storage.qdrant_store import QdrantStore
+
+if ASYNCPG_AVAILABLE:
+    from mcp_memoria.db import Database, MemoryRelationRepository
+
+logger = logging.getLogger(__name__)
+
+
+class GraphManagerError(Exception):
+    """Base exception for graph manager operations."""
+
+    pass
+
+
+class RelationNotFoundError(GraphManagerError):
+    """Raised when a relation is not found."""
+
+    pass
+
+
+class InvalidRelationError(GraphManagerError):
+    """Raised when a relation is invalid."""
+
+    pass
+
+
+class GraphManager:
+    """Manages knowledge graph operations for memory relations.
+
+    Uses PostgreSQL for storing and traversing relations via WITH RECURSIVE,
+    and Qdrant for fetching memory content when context is needed.
+
+    Features:
+    - CRUD operations for relations
+    - Graph traversal (neighbors, paths, subgraphs)
+    - AI-powered relation suggestions based on similarity
+    - Integration with existing memory storage
+
+    Example:
+        graph = GraphManager(database, qdrant_store)
+
+        # Create a relation
+        relation = await graph.add_relation(
+            source_id="mem-123",
+            target_id="mem-456",
+            relation_type=RelationType.FIXES
+        )
+
+        # Get neighbors
+        neighbors = await graph.get_neighbors("mem-123", depth=2)
+
+        # Get suggestions
+        suggestions = await graph.suggest_relations("mem-123")
+    """
+
+    def __init__(
+        self,
+        database: "Database",
+        qdrant: QdrantStore,
+        default_collection: str = "semantic",
+    ):
+        """Initialize GraphManager.
+
+        Args:
+            database: PostgreSQL database instance
+            qdrant: Qdrant store for memory content
+            default_collection: Default Qdrant collection for memory lookups
+        """
+        if not ASYNCPG_AVAILABLE:
+            raise RuntimeError(
+                "PostgreSQL support required for GraphManager. "
+                "Install with: pip install mcp-memoria[postgres]"
+            )
+
+        self._db = database
+        self._qdrant = qdrant
+        self._default_collection = default_collection
+        self._repo: MemoryRelationRepository | None = None
+
+    @property
+    def repo(self) -> "MemoryRelationRepository":
+        """Get or create the memory relation repository."""
+        if self._repo is None:
+            self._repo = MemoryRelationRepository(self._db)
+        return self._repo
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # CRUD Operations
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def add_relation(
+        self,
+        source_id: str,
+        target_id: str,
+        relation_type: RelationType,
+        weight: float = 1.0,
+        created_by: RelationCreator = RelationCreator.USER,
+        metadata: dict[str, Any] | None = None,
+    ) -> Relation:
+        """Create a relation between two memories.
+
+        Args:
+            source_id: ID of the source memory
+            target_id: ID of the target memory
+            relation_type: Type of relationship
+            weight: Strength of the relationship (0-1)
+            created_by: Who/what created the relation
+            metadata: Optional additional metadata
+
+        Returns:
+            Created Relation object
+
+        Raises:
+            InvalidRelationError: If source equals target
+        """
+        if source_id == target_id:
+            raise InvalidRelationError("Cannot create self-referential relation")
+
+        try:
+            db_relation = await self.repo.create(
+                source_id=UUID(source_id),
+                target_id=UUID(target_id),
+                relation_type=relation_type,
+                weight=weight,
+                created_by=created_by,
+                metadata=metadata or {},
+            )
+
+            logger.info(
+                f"Created {relation_type.value} relation: {source_id} -> {target_id}"
+            )
+
+            # Optionally mark memories as having relations in Qdrant
+            await self._mark_has_relations([source_id, target_id])
+
+            return Relation(
+                id=db_relation.id,
+                source_id=db_relation.source_id,
+                target_id=db_relation.target_id,
+                relation_type=db_relation.relation_type,
+                weight=db_relation.weight,
+                created_by=db_relation.created_by,
+                created_at=db_relation.created_at,
+                metadata=db_relation.metadata,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to create relation: {e}")
+            raise GraphManagerError(f"Failed to create relation: {e}") from e
+
+    async def remove_relation(
+        self,
+        source_id: str,
+        target_id: str,
+        relation_type: RelationType | None = None,
+    ) -> int:
+        """Remove relation(s) between two memories.
+
+        Args:
+            source_id: ID of the source memory
+            target_id: ID of the target memory
+            relation_type: Specific type to remove (None removes all)
+
+        Returns:
+            Number of relations removed
+        """
+        try:
+            # Get matching relations first
+            relations = await self.repo.get_for_memory(
+                memory_id=UUID(source_id),
+                relation_type=relation_type,
+                direction="outgoing",
+            )
+
+            # Filter to matching target
+            matching = [
+                r for r in relations if str(r.target_id) == target_id
+            ]
+
+            if relation_type:
+                matching = [r for r in matching if r.relation_type == relation_type]
+
+            count = 0
+            for rel in matching:
+                if await self.repo.delete(rel.id):
+                    count += 1
+
+            logger.info(
+                f"Removed {count} relation(s) between {source_id} and {target_id}"
+            )
+            return count
+
+        except Exception as e:
+            logger.error(f"Failed to remove relation: {e}")
+            raise GraphManagerError(f"Failed to remove relation: {e}") from e
+
+    async def get_relations(
+        self,
+        memory_id: str,
+        direction: RelationDirection = RelationDirection.BOTH,
+        relation_type: RelationType | None = None,
+        include_memory_context: bool = False,
+    ) -> list[Relation | RelationWithContext]:
+        """Get relations for a memory.
+
+        Args:
+            memory_id: ID of the memory
+            direction: Which direction to query
+            relation_type: Filter by relation type
+            include_memory_context: Include linked memory content
+
+        Returns:
+            List of relations
+        """
+        try:
+            # Map direction enum to repository format
+            direction_map = {
+                RelationDirection.OUTGOING: "outgoing",
+                RelationDirection.INCOMING: "incoming",
+                RelationDirection.BOTH: "both",
+            }
+
+            db_relations = await self.repo.get_for_memory(
+                memory_id=UUID(memory_id),
+                relation_type=relation_type,
+                direction=direction_map[direction],
+            )
+
+            if include_memory_context:
+                return await self._populate_memory_context(memory_id, db_relations)
+
+            return [
+                Relation(
+                    id=r.id,
+                    source_id=r.source_id,
+                    target_id=r.target_id,
+                    relation_type=r.relation_type,
+                    weight=r.weight,
+                    created_by=r.created_by,
+                    created_at=r.created_at,
+                    metadata=r.metadata,
+                )
+                for r in db_relations
+            ]
+
+        except Exception as e:
+            logger.error(f"Failed to get relations: {e}")
+            raise GraphManagerError(f"Failed to get relations: {e}") from e
+
+    async def update_relation(
+        self,
+        source_id: str,
+        target_id: str,
+        relation_type: RelationType,
+        weight: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Relation | None:
+        """Update an existing relation.
+
+        Args:
+            source_id: ID of the source memory
+            target_id: ID of the target memory
+            relation_type: Type of the relation to update
+            weight: New weight value
+            metadata: New metadata (merged with existing)
+
+        Returns:
+            Updated Relation or None if not found
+        """
+        try:
+            # Find the relation
+            relations = await self.repo.get_for_memory(
+                memory_id=UUID(source_id),
+                relation_type=relation_type,
+                direction="outgoing",
+            )
+
+            matching = [
+                r for r in relations
+                if str(r.target_id) == target_id and r.relation_type == relation_type
+            ]
+
+            if not matching:
+                return None
+
+            rel = matching[0]
+
+            # Update weight if provided
+            if weight is not None:
+                updated = await self.repo.update_weight(rel.id, weight)
+                return Relation(
+                    id=updated.id,
+                    source_id=updated.source_id,
+                    target_id=updated.target_id,
+                    relation_type=updated.relation_type,
+                    weight=updated.weight,
+                    created_by=updated.created_by,
+                    created_at=updated.created_at,
+                    metadata=updated.metadata,
+                )
+
+            return Relation(
+                id=rel.id,
+                source_id=rel.source_id,
+                target_id=rel.target_id,
+                relation_type=rel.relation_type,
+                weight=rel.weight,
+                created_by=rel.created_by,
+                created_at=rel.created_at,
+                metadata=rel.metadata,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to update relation: {e}")
+            raise GraphManagerError(f"Failed to update relation: {e}") from e
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Graph Traversal
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def get_neighbors(
+        self,
+        memory_id: str,
+        depth: int = 1,
+        relation_types: list[RelationType] | None = None,
+        include_content: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Get neighboring memories up to N hops away.
+
+        Uses PostgreSQL WITH RECURSIVE for efficient BFS traversal.
+
+        Args:
+            memory_id: Center memory ID
+            depth: Maximum traversal depth (1-5)
+            relation_types: Filter by relation types
+            include_content: Include memory content from Qdrant
+
+        Returns:
+            List of neighbor info dicts
+        """
+        depth = min(max(depth, 1), 5)  # Clamp to 1-5
+
+        try:
+            db_neighbors = await self.repo.get_neighbors(
+                memory_id=UUID(memory_id),
+                depth=depth,
+                relation_types=relation_types,
+            )
+
+            neighbors = [
+                {
+                    "memory_id": str(n.memory_id),
+                    "depth": n.depth,
+                    "path": [str(p) for p in n.path],
+                    "relation": n.relation.value,
+                }
+                for n in db_neighbors
+            ]
+
+            if include_content and neighbors:
+                await self._populate_neighbor_content(neighbors)
+
+            return neighbors
+
+        except Exception as e:
+            logger.error(f"Failed to get neighbors: {e}")
+            raise GraphManagerError(f"Failed to get neighbors: {e}") from e
+
+    async def find_path(
+        self,
+        from_id: str,
+        to_id: str,
+        max_depth: int = 5,
+    ) -> GraphPath | None:
+        """Find shortest path between two memories.
+
+        Uses PostgreSQL WITH RECURSIVE for efficient pathfinding.
+
+        Args:
+            from_id: Starting memory ID
+            to_id: Target memory ID
+            max_depth: Maximum path length
+
+        Returns:
+            GraphPath if found, None otherwise
+        """
+        max_depth = min(max(max_depth, 1), 10)  # Clamp to 1-10
+
+        try:
+            db_path = await self.repo.find_path(
+                from_id=UUID(from_id),
+                to_id=UUID(to_id),
+                max_depth=max_depth,
+            )
+
+            if not db_path:
+                return GraphPath(from_id=from_id, to_id=to_id, steps=[])
+
+            steps = [
+                PathStep(
+                    memory_id=str(p.memory_id),
+                    relation_type=p.relation,
+                    direction=p.direction,
+                )
+                for p in db_path
+            ]
+
+            return GraphPath(
+                from_id=from_id,
+                to_id=to_id,
+                steps=steps,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to find path: {e}")
+            raise GraphManagerError(f"Failed to find path: {e}") from e
+
+    async def get_subgraph(
+        self,
+        center_id: str,
+        depth: int = 2,
+        relation_types: list[RelationType] | None = None,
+    ) -> Subgraph:
+        """Extract subgraph for visualization.
+
+        Combines PostgreSQL (relations) and Qdrant (memory content)
+        to build a visualization-ready graph structure.
+
+        Args:
+            center_id: Center memory ID
+            depth: Depth of subgraph (1-4)
+            relation_types: Filter by relation types
+
+        Returns:
+            Subgraph with nodes and edges
+        """
+        depth = min(max(depth, 1), 4)  # Clamp to 1-4
+
+        try:
+            # Get all neighbors via WITH RECURSIVE
+            neighbors = await self.get_neighbors(
+                memory_id=center_id,
+                depth=depth,
+                relation_types=relation_types,
+            )
+
+            # Collect all memory IDs
+            memory_ids = [center_id] + [n["memory_id"] for n in neighbors]
+            unique_ids = list(set(memory_ids))
+
+            # Fetch memory details from Qdrant
+            nodes = await self._build_nodes(
+                memory_ids=unique_ids,
+                center_id=center_id,
+                neighbors=neighbors,
+            )
+
+            # Get edges from PostgreSQL
+            edges = await self._build_edges(unique_ids)
+
+            return Subgraph(
+                center_id=center_id,
+                depth=depth,
+                nodes=nodes,
+                edges=edges,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to get subgraph: {e}")
+            raise GraphManagerError(f"Failed to get subgraph: {e}") from e
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # AI-Powered Suggestions
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def suggest_relations(
+        self,
+        memory_id: str,
+        limit: int = 5,
+        min_similarity: float = 0.75,
+        collection: str | None = None,
+    ) -> list[RelationSuggestion]:
+        """Suggest relations based on content similarity and heuristics.
+
+        Uses Qdrant vector search to find similar memories,
+        then applies heuristics to infer relation types.
+
+        Args:
+            memory_id: Source memory ID
+            limit: Maximum suggestions to return
+            min_similarity: Minimum similarity score threshold
+            collection: Qdrant collection to search
+
+        Returns:
+            List of RelationSuggestion objects
+        """
+        collection = collection or self._default_collection
+
+        try:
+            # Get source memory with vector
+            source_results = await self._qdrant.get(
+                collection=collection,
+                ids=[memory_id],
+                with_vectors=True,
+            )
+
+            if not source_results:
+                logger.warning(f"Memory {memory_id} not found in {collection}")
+                return []
+
+            source = source_results[0]
+            source_vector = source.vector
+
+            if not source_vector:
+                logger.warning(f"Memory {memory_id} has no vector")
+                return []
+
+            # Get existing relations to exclude
+            existing_relations = await self.get_relations(
+                memory_id=memory_id,
+                direction=RelationDirection.BOTH,
+            )
+            existing_ids = {str(r.source_id) for r in existing_relations}
+            existing_ids.update(str(r.target_id) for r in existing_relations)
+            existing_ids.add(memory_id)
+
+            # Search for similar memories
+            search_limit = limit + len(existing_ids) + 5  # Extra buffer
+            similar = await self._qdrant.search(
+                collection=collection,
+                vector=source_vector,
+                limit=search_limit,
+                score_threshold=min_similarity,
+            )
+
+            suggestions = []
+            for hit in similar:
+                if hit.id in existing_ids:
+                    continue
+
+                # Infer relation type from content
+                suggested_type = self._infer_relation_type(
+                    source_payload=source.payload,
+                    target_payload=hit.payload,
+                )
+
+                reason = self._explain_suggestion(
+                    source_payload=source.payload,
+                    target_payload=hit.payload,
+                    relation_type=suggested_type,
+                )
+
+                suggestions.append(
+                    RelationSuggestion(
+                        target_id=hit.id,
+                        target_content=hit.payload.get("content", "")[:200],
+                        target_tags=hit.payload.get("tags", []),
+                        target_type=hit.payload.get("memory_type"),
+                        suggested_type=suggested_type,
+                        confidence=hit.score,
+                        reason=reason,
+                    )
+                )
+
+                if len(suggestions) >= limit:
+                    break
+
+            return suggestions
+
+        except Exception as e:
+            logger.error(f"Failed to suggest relations: {e}")
+            raise GraphManagerError(f"Failed to suggest relations: {e}") from e
+
+    def _infer_relation_type(
+        self,
+        source_payload: dict[str, Any],
+        target_payload: dict[str, Any],
+    ) -> RelationType:
+        """Infer relation type based on content heuristics.
+
+        Analyzes content, tags, and metadata to suggest the most
+        appropriate relation type.
+
+        Args:
+            source_payload: Source memory payload
+            target_payload: Target memory payload
+
+        Returns:
+            Inferred RelationType
+        """
+        source_tags = set(source_payload.get("tags", []))
+        target_tags = set(target_payload.get("tags", []))
+        source_content = source_payload.get("content", "").lower()
+        target_content = target_payload.get("content", "").lower()
+
+        # Check for fix/solution patterns
+        fix_keywords = [
+            "fix", "fixed", "soluzione", "risolto", "resolved", "solved",
+            "solution", "workaround", "patch"
+        ]
+        problem_keywords = [
+            "bug", "errore", "error", "problema", "problem", "issue",
+            "crash", "fail", "broken"
+        ]
+
+        if any(kw in source_content for kw in fix_keywords):
+            if any(kw in target_content for kw in problem_keywords):
+                return RelationType.FIXES
+
+        # Check for causal patterns
+        causal_keywords = [
+            "decision", "decisione", "choose", "decided", "caused", "leads to",
+            "results in", "because"
+        ]
+        if any(kw in source_content for kw in causal_keywords):
+            return RelationType.CAUSES
+
+        # Check for support/opposition patterns
+        oppose_keywords = [
+            "however", "but", "although", "instead", "contrary",
+            "tuttavia", "invece", "contrario", "wrong", "incorrect"
+        ]
+        support_keywords = [
+            "confirms", "supports", "validates", "correct", "agree",
+            "conferma", "supporta", "corretto"
+        ]
+
+        if any(kw in source_content for kw in oppose_keywords):
+            return RelationType.OPPOSES
+        if any(kw in source_content for kw in support_keywords):
+            return RelationType.SUPPORTS
+
+        # Check for temporal/supersedes patterns
+        supersede_keywords = [
+            "update", "new version", "replace", "deprecated",
+            "aggiornamento", "nuova versione", "sostituisce"
+        ]
+        if any(kw in source_content for kw in supersede_keywords):
+            return RelationType.SUPERSEDES
+
+        # Check for structural patterns
+        if "part of" in source_content or "parte di" in source_content:
+            return RelationType.PART_OF
+        if "derived" in source_content or "deriva" in source_content:
+            return RelationType.DERIVES
+
+        # Check for temporal patterns based on timestamps
+        source_time = source_payload.get("created_at")
+        target_time = target_payload.get("created_at")
+        if source_time and target_time:
+            # Same project/context and newer = likely follows
+            if source_tags & target_tags and source_time > target_time:
+                return RelationType.FOLLOWS
+
+        # Default to generic related
+        return RelationType.RELATED
+
+    def _explain_suggestion(
+        self,
+        source_payload: dict[str, Any],
+        target_payload: dict[str, Any],
+        relation_type: RelationType,
+    ) -> str:
+        """Generate explanation for a suggestion.
+
+        Args:
+            source_payload: Source memory payload
+            target_payload: Target memory payload
+            relation_type: Inferred relation type
+
+        Returns:
+            Human-readable explanation
+        """
+        shared_tags = set(source_payload.get("tags", [])) & set(
+            target_payload.get("tags", [])
+        )
+
+        explanations = {
+            RelationType.FIXES: "Appears to be a solution to a problem",
+            RelationType.CAUSES: "Contains a decision or action leading to consequences",
+            RelationType.FOLLOWS: "Subsequent event in the same context",
+            RelationType.OPPOSES: "Contains potentially contradicting information",
+            RelationType.SUPPORTS: "Contains supporting or confirming information",
+            RelationType.SUPERSEDES: "Appears to be an updated version",
+            RelationType.DERIVES: "Derived or consolidated content",
+            RelationType.PART_OF: "Appears to be a component of a larger concept",
+            RelationType.RELATED: (
+                f"Similar content"
+                + (f", shared tags: {', '.join(list(shared_tags)[:3])}" if shared_tags else "")
+            ),
+        }
+
+        return explanations.get(relation_type, "Related content")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Private Helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _mark_has_relations(self, memory_ids: list[str]) -> None:
+        """Mark memories as having relations in Qdrant for fast filtering.
+
+        Args:
+            memory_ids: List of memory IDs to mark
+        """
+        for mid in memory_ids:
+            try:
+                await self._qdrant.update_payload(
+                    collection=self._default_collection,
+                    id=mid,
+                    payload={"has_relations": True},
+                )
+            except Exception as e:
+                # Memory might not exist in this collection
+                logger.debug(f"Could not mark has_relations for {mid}: {e}")
+
+    async def _populate_memory_context(
+        self,
+        memory_id: str,
+        db_relations: list[Any],
+    ) -> list[RelationWithContext]:
+        """Populate relation objects with linked memory content.
+
+        Args:
+            memory_id: The querying memory ID
+            db_relations: Database relation records
+
+        Returns:
+            List of RelationWithContext objects
+        """
+        # Collect all linked memory IDs
+        linked_ids = set()
+        for rel in db_relations:
+            if str(rel.source_id) != memory_id:
+                linked_ids.add(str(rel.source_id))
+            if str(rel.target_id) != memory_id:
+                linked_ids.add(str(rel.target_id))
+
+        if not linked_ids:
+            return []
+
+        # Batch fetch from Qdrant
+        try:
+            results = await self._qdrant.get(
+                collection=self._default_collection,
+                ids=list(linked_ids),
+            )
+            point_map = {r.id: r for r in results}
+        except Exception as e:
+            logger.warning(f"Could not fetch memory context: {e}")
+            point_map = {}
+
+        # Build RelationWithContext objects
+        relations_with_context = []
+        for rel in db_relations:
+            # Determine which ID is the linked memory
+            linked_id = (
+                str(rel.target_id)
+                if str(rel.source_id) == memory_id
+                else str(rel.source_id)
+            )
+            point = point_map.get(linked_id)
+
+            rwc = RelationWithContext(
+                id=rel.id,
+                source_id=rel.source_id,
+                target_id=rel.target_id,
+                relation_type=rel.relation_type,
+                weight=rel.weight,
+                created_by=rel.created_by,
+                created_at=rel.created_at,
+                metadata=rel.metadata,
+                linked_memory_id=linked_id,
+                linked_memory_content=point.payload.get("content") if point else None,
+                linked_memory_type=point.payload.get("memory_type") if point else None,
+                linked_memory_tags=point.payload.get("tags", []) if point else [],
+                linked_memory_importance=point.payload.get("importance") if point else None,
+            )
+            relations_with_context.append(rwc)
+
+        return relations_with_context
+
+    async def _populate_neighbor_content(
+        self,
+        neighbors: list[dict[str, Any]],
+    ) -> None:
+        """Populate neighbor dicts with memory content.
+
+        Args:
+            neighbors: List of neighbor info dicts to populate
+        """
+        memory_ids = [n["memory_id"] for n in neighbors]
+
+        try:
+            results = await self._qdrant.get(
+                collection=self._default_collection,
+                ids=memory_ids,
+            )
+            point_map = {r.id: r for r in results}
+
+            for neighbor in neighbors:
+                point = point_map.get(neighbor["memory_id"])
+                if point:
+                    neighbor["content"] = point.payload.get("content", "")[:200]
+                    neighbor["tags"] = point.payload.get("tags", [])
+                    neighbor["memory_type"] = point.payload.get("memory_type")
+
+        except Exception as e:
+            logger.warning(f"Could not fetch neighbor content: {e}")
+
+    async def _build_nodes(
+        self,
+        memory_ids: list[str],
+        center_id: str,
+        neighbors: list[dict[str, Any]],
+    ) -> list[GraphNode]:
+        """Build graph nodes from memory IDs.
+
+        Args:
+            memory_ids: List of memory IDs
+            center_id: ID of the center node
+            neighbors: Neighbor info with depth
+
+        Returns:
+            List of GraphNode objects
+        """
+        # Create depth map
+        depth_map = {center_id: 0}
+        for n in neighbors:
+            depth_map[n["memory_id"]] = n["depth"]
+
+        # Fetch memory details from Qdrant
+        try:
+            results = await self._qdrant.get(
+                collection=self._default_collection,
+                ids=memory_ids,
+            )
+        except Exception as e:
+            logger.warning(f"Could not fetch node content: {e}")
+            results = []
+
+        nodes = []
+        for result in results:
+            node = GraphNode(
+                id=result.id,
+                label=result.payload.get("content", "")[:50],
+                memory_type=result.payload.get("memory_type"),
+                importance=result.payload.get("importance", 0.5),
+                tags=result.payload.get("tags", []),
+                is_center=(result.id == center_id),
+                depth=depth_map.get(result.id, 0),
+            )
+            nodes.append(node)
+
+        return nodes
+
+    async def _build_edges(self, memory_ids: list[str]) -> list[GraphEdge]:
+        """Build graph edges for the given memory IDs.
+
+        Args:
+            memory_ids: List of memory IDs in the subgraph
+
+        Returns:
+            List of GraphEdge objects
+        """
+        memory_id_set = set(memory_ids)
+        edges = []
+
+        # Get all relations for these memories
+        for mid in memory_ids:
+            relations = await self.repo.get_for_memory(
+                memory_id=UUID(mid),
+                direction="outgoing",
+            )
+
+            for rel in relations:
+                # Only include edges where both ends are in the subgraph
+                if str(rel.target_id) in memory_id_set:
+                    edge = GraphEdge(
+                        source=str(rel.source_id),
+                        target=str(rel.target_id),
+                        relation_type=rel.relation_type,
+                        weight=rel.weight,
+                        created_by=rel.created_by,
+                    )
+                    edges.append(edge)
+
+        return edges
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Statistics and Utilities
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def count_relations(self, memory_id: str) -> dict[str, dict[str, int]]:
+        """Count relations by type for a memory.
+
+        Args:
+            memory_id: Memory ID
+
+        Returns:
+            Dict mapping relation type to incoming/outgoing counts
+        """
+        try:
+            return await self.repo.count_relations(UUID(memory_id))
+        except Exception as e:
+            logger.error(f"Failed to count relations: {e}")
+            raise GraphManagerError(f"Failed to count relations: {e}") from e
+
+    async def delete_memory_relations(self, memory_id: str) -> int:
+        """Delete all relations involving a memory.
+
+        Should be called when a memory is deleted.
+
+        Args:
+            memory_id: Memory ID
+
+        Returns:
+            Number of relations deleted
+        """
+        try:
+            count = await self.repo.delete_for_memory(UUID(memory_id))
+            logger.info(f"Deleted {count} relations for memory {memory_id}")
+            return count
+        except Exception as e:
+            logger.error(f"Failed to delete memory relations: {e}")
+            raise GraphManagerError(f"Failed to delete memory relations: {e}") from e
+
+    async def has_relations(self, memory_id: str) -> bool:
+        """Check if a memory has any relations.
+
+        Args:
+            memory_id: Memory ID
+
+        Returns:
+            True if memory has relations
+        """
+        try:
+            relations = await self.repo.get_for_memory(
+                memory_id=UUID(memory_id),
+                direction="both",
+            )
+            return len(relations) > 0
+        except Exception as e:
+            logger.error(f"Failed to check relations: {e}")
+            return False

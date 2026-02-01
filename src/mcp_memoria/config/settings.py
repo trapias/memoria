@@ -114,6 +114,24 @@ class Settings(BaseSettings):
         description="HTTP host to bind to",
     )
 
+    # PostgreSQL settings (optional, enables relational data features)
+    database_url: str | None = Field(
+        default=None,
+        description="PostgreSQL connection URL (e.g., postgresql://user:pass@host:5432/db)",
+    )
+    db_migrate: bool = Field(
+        default=False,
+        description="Run database migrations on startup",
+    )
+    db_pool_min: int = Field(
+        default=2,
+        description="Minimum database connection pool size",
+    )
+    db_pool_max: int = Field(
+        default=10,
+        description="Maximum database connection pool size",
+    )
+
     def ensure_directories(self) -> None:
         """Create necessary directories if they don't exist."""
         self.qdrant_path.mkdir(parents=True, exist_ok=True)
