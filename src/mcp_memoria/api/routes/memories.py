@@ -58,6 +58,8 @@ async def list_memories(
     tags: Optional[str] = None,
     query: Optional[str] = None,
     text_match: Optional[str] = None,
+    created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
     sort_by: str = "created_at",
@@ -71,6 +73,8 @@ async def list_memories(
         tags: Comma-separated list of tags to filter by
         query: Semantic search query (optional)
         text_match: Keyword filter that must appear in content
+        created_after: Filter memories created after this date (ISO format, e.g. 2026-01-01)
+        created_before: Filter memories created before this date (ISO format, e.g. 2026-12-31)
         limit: Max results per page (default 20)
         offset: Pagination offset
         sort_by: Sort field (created_at, updated_at, importance)
@@ -136,6 +140,12 @@ async def list_memories(
                                 point_tags = payload.get("tags", [])
                                 if not any(t in point_tags for t in tag_list):
                                     continue
+                            # Apply date filters
+                            point_created_at = payload.get("created_at", "")
+                            if created_after and point_created_at < created_after:
+                                continue
+                            if created_before and point_created_at > created_before + "T23:59:59":
+                                continue
                             # Skip chunks, only include main memories
                             if payload.get("chunk_index", 0) > 0:
                                 continue

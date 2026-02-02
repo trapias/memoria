@@ -15,111 +15,116 @@ MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, u
 - **Semantic Search**: Find relevant memories by meaning, not just keywords
 - **Full-Text Match**: Filter results by exact keyword presence in content
 - **Content Chunking**: Long memories are automatically split into chunks for higher-quality embeddings; results are transparently deduplicated
-- **Knowledge Graph** (v1.2.0+): Create typed relationships between memories
+- **Knowledge Graph**: Create typed relationships between memories
   - 9 relation types: causes, fixes, supports, opposes, follows, supersedes, derives, part_of, related
   - Graph traversal with BFS/DFS
   - AI-powered relation suggestions
   - Path finding between memories
+- **Web UI**: Browser-based Knowledge Graph explorer and memory browser
+- **Time Tracking**: Track work sessions with clients, projects, and categories
 - **Memory Consolidation**: Automatic merging of similar memories
 - **Forgetting Curve**: Natural decay of unused, low-importance memories
 - **Export/Import**: Backup and share your memories
-- **Dual Transport**: stdio (default) or HTTP/SSE for flexible deployment
-- **Dual Database**: Qdrant for vectors + PostgreSQL for relational data (optional)
 
-## Quick Start
+---
+
+## Setup
+
+MCP Memoria requires **two components** running before you can use it:
+
+1. **Backend Services** (Qdrant + PostgreSQL) — must be started FIRST
+2. **Claude Configuration** — connects Claude to Memoria
+
+> ⚠️ **Important**: Start the backend services BEFORE configuring Claude. Claude will fail to connect if the services aren't running.
 
 ### Prerequisites
 
-- Python 3.11+
-- [Ollama](https://ollama.com/download) with `nomic-embed-text` model
-- (Optional) Docker for Qdrant containerized deployment
-
-### Installation
-
-#### Option A: Automated (Recommended)
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+- [Ollama](https://ollama.com/download) installed and running with the `nomic-embed-text` model
+- Python 3.11+ (for local Memoria process)
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/mcp-memoria.git
-cd mcp-memoria
-
-# Run installation script (installs Ollama, model, and dependencies)
-./scripts/install.sh
-```
-
-#### Option B: Manual Installation
-
-```bash
-# 1. Install Ollama (skip if already installed)
+# Install Ollama (if not already installed)
 # macOS
 brew install ollama
 
 # Linux
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 2. Start Ollama and pull the embedding model
+# Start Ollama and pull the embedding model
 ollama serve  # Run in background or separate terminal
 ollama pull nomic-embed-text
 
-# 3. Install MCP Memoria
-git clone https://github.com/yourusername/mcp-memoria.git
-cd mcp-memoria
-pip install -e .
-
-# 4. Start Qdrant (choose one option)
-
-# Option 4a: Using Docker (recommended)
-cd docker
-docker-compose -f docker-compose.qdrant-only.yml up -d
-
-# Option 4b: Local storage (no Docker needed)
-# Just configure MEMORIA_QDRANT_PATH in Claude config
+# Verify Ollama is running
+curl http://localhost:11434/api/tags
 ```
 
-### Configure Claude Code
+---
 
-#### Option 1: Using CLI (Recommended)
+### Option A: Full Docker Setup (Recommended)
+
+**Best for**: Most users. Provides all features including Knowledge Graph, Time Tracking, and Web UI.
+
+This setup runs Qdrant, PostgreSQL, and Web UI in Docker containers. Each Claude session spawns its own local Memoria process, connecting to these shared services.
+
+#### Step 1: Clone and Start Backend Services
 
 ```bash
-# Add MCP server at user level (available for all projects)
+git clone https://github.com/yourusername/mcp-memoria.git
+cd mcp-memoria/docker
+
+# Start all services (Qdrant + PostgreSQL + Web UI)
+./start.sh central
+
+# Or manually:
+docker-compose -f docker-compose.central.yml up -d
+```
+
+This starts:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Qdrant | 6333 | Vector database for semantic search |
+| PostgreSQL | 5432 | Knowledge Graph + Time Tracking data |
+| Web UI | 3000 | Browser-based memory explorer |
+| REST API | 8765 | API for custom integrations |
+
+#### Step 2: Verify Services Are Running
+
+```bash
+# Check Qdrant
+curl http://localhost:6333/health
+
+# Check PostgreSQL
+docker exec memoria-postgres pg_isready -U memoria
+
+# Open Web UI (optional)
+open http://localhost:3000
+```
+
+#### Step 3: Install Memoria Python Package
+
+```bash
+cd mcp-memoria
+pip install -e .
+```
+
+#### Step 4: Configure Claude
+
+Choose your Claude client:
+
+**Claude Code** — Using CLI (recommended):
+
+```bash
 claude mcp add --scope user memoria \
   -e MEMORIA_QDRANT_HOST=localhost \
   -e MEMORIA_QDRANT_PORT=6333 \
+  -e MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@localhost:5432/memoria \
   -e MEMORIA_OLLAMA_HOST=http://localhost:11434 \
   -- python -m mcp_memoria
-
-# Or for project-level only
-claude mcp add memoria -- python -m mcp_memoria
 ```
 
-#### Option 2: Manual Configuration
-
-Add to `~/.claude/config.json`:
-
-```json
-{
-  "mcp_servers": {
-    "memoria": {
-      "command": "python",
-      "args": ["-m", "mcp_memoria"],
-      "env": {
-        "MEMORIA_QDRANT_PATH": "~/.mcp-memoria/qdrant",
-        "MEMORIA_OLLAMA_HOST": "http://localhost:11434",
-        "MEMORIA_EMBEDDING_MODEL": "nomic-embed-text"
-      }
-    }
-  }
-}
-```
-
-### Configure Claude Desktop
-
-Add to your Claude Desktop config:
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-#### Option A: Direct Python (if installed locally)
+**Claude Code** — Manual config (`~/.claude.json`):
 
 ```json
 {
@@ -128,7 +133,9 @@ Add to your Claude Desktop config:
       "command": "python",
       "args": ["-m", "mcp_memoria"],
       "env": {
-        "MEMORIA_QDRANT_PATH": "/path/to/qdrant/storage",
+        "MEMORIA_QDRANT_HOST": "localhost",
+        "MEMORIA_QDRANT_PORT": "6333",
+        "MEMORIA_DATABASE_URL": "postgresql://memoria:memoria_dev@localhost:5432/memoria",
         "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
       }
     }
@@ -136,9 +143,109 @@ Add to your Claude Desktop config:
 }
 ```
 
-#### Option B: Docker (recommended)
+**Claude Desktop** — Config file location:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
-This runs Memoria in a container, connecting to a persistent Qdrant container:
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "python",
+      "args": ["-m", "mcp_memoria"],
+      "env": {
+        "MEMORIA_QDRANT_HOST": "localhost",
+        "MEMORIA_QDRANT_PORT": "6333",
+        "MEMORIA_DATABASE_URL": "postgresql://memoria:memoria_dev@localhost:5432/memoria",
+        "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
+      }
+    }
+  }
+}
+```
+
+#### Step 5: Verify Installation
+
+Start Claude and try:
+
+```
+Show me the memoria stats
+```
+
+If you see statistics, Memoria is working correctly.
+
+---
+
+### Option B: Minimal Setup (Qdrant Only)
+
+**Best for**: Quick testing or if you don't need Knowledge Graph/Time Tracking features.
+
+This setup only runs Qdrant. You won't have access to:
+- Knowledge Graph tools (`memoria_link`, `memoria_related`, etc.)
+- Time Tracking tools (`memoria_work_start`, `memoria_work_report`, etc.)
+- Web UI
+
+#### Step 1: Start Qdrant
+
+```bash
+cd mcp-memoria/docker
+docker-compose -f docker-compose.qdrant-only.yml up -d
+```
+
+#### Step 2: Verify Qdrant Is Running
+
+```bash
+curl http://localhost:6333/health
+```
+
+#### Step 3: Install and Configure
+
+```bash
+cd mcp-memoria
+pip install -e .
+```
+
+Configure Claude (same as Option A, but without `MEMORIA_DATABASE_URL`):
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "python",
+      "args": ["-m", "mcp_memoria"],
+      "env": {
+        "MEMORIA_QDRANT_HOST": "localhost",
+        "MEMORIA_QDRANT_PORT": "6333",
+        "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
+      }
+    }
+  }
+}
+```
+
+---
+
+### Option C: Fully Dockerized Client
+
+**Best for**: Users who prefer running Memoria entirely in Docker, or environments without Python.
+
+In this setup, Claude spawns an ephemeral Memoria container for each session. The container connects to the backend services via Docker networking.
+
+#### Step 1: Start Backend Services
+
+```bash
+cd mcp-memoria/docker
+docker-compose -f docker-compose.central.yml up -d
+```
+
+#### Step 2: Build the Memoria Image
+
+```bash
+cd mcp-memoria
+docker build -t mcp-memoria:latest -f docker/Dockerfile .
+```
+
+#### Step 3: Configure Claude
 
 ```json
 {
@@ -146,14 +253,13 @@ This runs Memoria in a container, connecting to a persistent Qdrant container:
     "memoria": {
       "command": "docker",
       "args": [
-        "run", "--rm", "-i",
-        "--network", "memoria-network",
-        "-v", "/tmp/memoria-logs:/logs",
-        "-e", "MEMORIA_QDRANT_HOST=memoria-qdrant",
+        "run", "-i", "--rm",
+        "--network", "memoria-central",
+        "-e", "MEMORIA_QDRANT_HOST=qdrant",
         "-e", "MEMORIA_QDRANT_PORT=6333",
+        "-e", "MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria",
         "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
         "-e", "MEMORIA_LOG_LEVEL=WARNING",
-        "-e", "MEMORIA_LOG_FILE=/logs/memoria.log",
         "mcp-memoria:latest"
       ]
     }
@@ -161,34 +267,90 @@ This runs Memoria in a container, connecting to a persistent Qdrant container:
 }
 ```
 
-**Prerequisites for Docker setup:**
-```bash
-# 1. Start Qdrant (creates network and persistent storage)
-cd docker && docker-compose -f docker-compose.qdrant-only.yml up -d
+> **Note**: Inside Docker, use container names (`qdrant`, `postgres`) instead of `localhost`. Use `host.docker.internal` to reach Ollama running on your host machine.
 
-# 2. Build Memoria image
-docker build -t mcp-memoria:latest -f docker/Dockerfile .
+---
+
+### Managing Services
+
+```bash
+# Check status
+docker-compose -f docker-compose.central.yml ps
+
+# View logs
+docker-compose -f docker-compose.central.yml logs -f
+
+# Stop services (data is preserved)
+docker-compose -f docker-compose.central.yml down
+
+# Stop and DELETE all data (⚠️ irreversible!)
+docker-compose -f docker-compose.central.yml down -v
 ```
+
+---
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Your Machine                            │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Ollama (native)                                      │   │
+│  │  http://localhost:11434                               │   │
+│  │  Provides: nomic-embed-text embeddings                │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Docker Services (docker-compose.central.yml)         │   │
+│  │                                                        │   │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌────────────────┐   │   │
+│  │  │   Qdrant    │ │ PostgreSQL  │ │    Web UI      │   │   │
+│  │  │   :6333     │ │   :5432     │ │    :3000       │   │   │
+│  │  │  (vectors)  │ │ (relations) │ │   (browser)    │   │   │
+│  │  └─────────────┘ └─────────────┘ └────────────────┘   │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                           ▲                                  │
+│                           │                                  │
+│  ┌────────────────────────┼─────────────────────────────┐   │
+│  │  Claude Code/Desktop   │                              │   │
+│  │         ┌──────────────┴───────────────┐              │   │
+│  │         │  Memoria Process (stdio)     │              │   │
+│  │         │  python -m mcp_memoria       │              │   │
+│  │         │  (spawned per session)       │              │   │
+│  │         └──────────────────────────────┘              │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Web UI
+
+The Web UI provides a browser-based interface to explore and manage your memories. Access it at **http://localhost:3000** after starting the central Docker services.
+
+### Features
+
+- **Dashboard**: Overview of memory statistics, recent activity, and quick actions
+- **Knowledge Graph Explorer**: Interactive force-directed graph visualization of memory relationships
+  - Click nodes to view memory details
+  - Drag to rearrange the layout
+  - Filter by relation type
+  - Zoom and pan navigation
+- **Memory Browser**: Search and browse all stored memories
+  - Semantic search with filters
+  - Filter by memory type (episodic, semantic, procedural)
+  - Sort by date, importance, or relevance
+- **Relation Management**: Create, view, and delete relationships between memories
+- **AI Suggestions**: Get recommended relations based on content similarity
+
+> **Note**: The Web UI is included in the Full Docker Setup (Option A). It's not available with the Minimal Setup.
+
+---
 
 ## Usage
 
-Once configured, Claude will have access to memory tools. You can interact naturally - Claude will automatically use the appropriate memory tools based on your requests.
-
-### Verify Installation
-
-Before using Memoria, ensure the services are running:
-
-```bash
-# 1. Check Qdrant is running
-curl http://localhost:6333/healthz
-
-# 2. Check Ollama is running and has the model
-ollama list | grep nomic-embed-text
-
-# 3. Start Claude in any project directory
-cd /path/to/your/project
-claude
-```
+Once configured, Claude will have access to memory tools. You can interact naturally — Claude will automatically use the appropriate memory tools based on your requests.
 
 ### Quick Test Commands
 
@@ -207,6 +369,8 @@ What do you remember about this project?
 
 ### Available Tools
 
+**Memory Tools:**
+
 | Tool | Description |
 |------|-------------|
 | `memoria_store` | Store new memories |
@@ -219,6 +383,11 @@ What do you remember about this project?
 | `memoria_import` | Import memories from file |
 | `memoria_stats` | View system statistics |
 | `memoria_set_context` | Set current project/file context |
+
+**Knowledge Graph Tools** (require PostgreSQL):
+
+| Tool | Description |
+|------|-------------|
 | `memoria_link` | Create a relationship between two memories |
 | `memoria_unlink` | Remove a relationship between memories |
 | `memoria_related` | Find memories related through the knowledge graph |
@@ -237,9 +406,11 @@ What do you remember about this project?
 | `memoria_work_note` | Add notes to active session |
 | `memoria_work_report` | Generate time tracking reports |
 
-### Example Interactions
+---
 
-#### Storing Different Memory Types
+## Example Interactions
+
+### Storing Different Memory Types
 
 **Semantic memories** (facts and knowledge):
 ```
@@ -259,7 +430,7 @@ Save this procedure: To deploy, run ./scripts/deploy.sh --env prod
 Remember the steps to set up the dev environment
 ```
 
-#### Recalling Memories
+### Recalling Memories
 
 ```
 # Semantic search - finds relevant memories by meaning
@@ -271,7 +442,7 @@ Search memories about deployment from last week
 Find all procedural memories about testing
 ```
 
-#### Project Context
+### Project Context
 
 Set context to associate memories with a specific project:
 
@@ -285,7 +456,7 @@ Later, when working on the same project:
 What do you remember about the ecommerce-api project?
 ```
 
-#### Knowledge Graph (v1.2.0+)
+### Knowledge Graph
 
 Create and explore relationships between memories:
 
@@ -305,6 +476,7 @@ Suggest relationships for memory [id]
 ```
 
 **Relation Types:**
+
 | Type | Description | Example |
 |------|-------------|---------|
 | `causes` | A leads to B | Decision → Consequence |
@@ -317,7 +489,7 @@ Suggest relationships for memory [id]
 | `part_of` | A is component of B | Chapter → Book |
 | `related` | Generic connection | Any correlation |
 
-#### Memory Management
+### Memory Management
 
 ```
 # Update a memory
@@ -335,21 +507,9 @@ Export all memories to backup.json
 Import memories from shared-knowledge.json
 ```
 
-### Tips for Effective Use
-
-1. **Be specific**: "Remember the PostgreSQL connection string is postgres://..." is better than "Remember the database info"
-
-2. **Use context**: Set project context when working on specific projects to keep memories organized
-
-3. **Regular consolidation**: Run consolidation periodically to merge similar memories and reduce redundancy
-
-4. **Importance levels**: Mention importance for critical information: "This is important: never delete the production database"
-
-5. **Natural language**: You don't need special syntax - just talk naturally about what you want to remember or recall
-
 ### Time Tracking
 
-Track time spent on tasks, issues, and projects. Requires PostgreSQL to be configured.
+Track time spent on tasks, issues, and projects (requires PostgreSQL):
 
 ```
 # Start tracking work
@@ -382,385 +542,33 @@ Time tracking supports:
 - **Pause/Resume**: Exclude breaks from work time
 - **Reports**: Aggregate by period, client, project, or category
 
-## Transport Modes
+---
 
-MCP Memoria supports two transport modes:
+## Tips for Effective Use
 
-### stdio (Default)
+1. **Be specific**: "Remember the PostgreSQL connection string is postgres://..." is better than "Remember the database info"
 
-Standard input/output transport. Each client session spawns a new Memoria process. This is the default mode and works with all MCP clients.
+2. **Use context**: Set project context when working on specific projects to keep memories organized
 
-```bash
-# Direct execution
-python -m mcp_memoria
+3. **Regular consolidation**: Run consolidation periodically to merge similar memories and reduce redundancy
 
-# Or via Docker
-docker run --rm -i --network memoria-network \
-  -e MEMORIA_QDRANT_HOST=memoria-qdrant \
-  mcp-memoria:latest
-```
+4. **Importance levels**: Mention importance for critical information: "This is important: never delete the production database"
 
-### HTTP/SSE (v1.1.0+)
+5. **Natural language**: You don't need special syntax — just talk naturally about what you want to remember or recall
 
-> ⚠️ **WARNING: FOR TESTING/DEVELOPMENT ONLY**
->
-> A shared HTTP server is **NOT recommended** for multi-client production use.
->
-> **Problems with shared HTTP server:**
-> - WorkingMemory is shared across ALL sessions
-> - Risk of context confusion between different users
-> - No session isolation
->
-> **Use only for:** local testing, single-user scenarios, demos/proof-of-concept.
->
-> **For production:** Each Claude Code instance should have its own local Memoria process (stdio transport) connecting to shared databases.
+---
 
-HTTP transport with Server-Sent Events. Useful for:
-- Web applications and browser-based clients
-- Custom integrations that can't spawn processes
-- Remote access scenarios (single-user only)
+## Advanced Topics
 
-```bash
-# Enable HTTP mode by setting the port
-MEMORIA_HTTP_PORT=8765 python -m mcp_memoria
-
-# Or with Docker
-docker run -p 8765:8765 \
-  -e MEMORIA_HTTP_PORT=8765 \
-  -e MEMORIA_QDRANT_HOST=memoria-qdrant \
-  --network memoria-network \
-  mcp-memoria:latest
-```
-
-**Endpoints:**
-- `GET /sse` - SSE connection endpoint
-- `POST /messages/` - Message endpoint
-- `GET /health` - Health check
-
-**Docker Compose for HTTP mode:**
-```bash
-cd docker && docker-compose -f docker-compose.http.yml up -d
-```
-
-> **Note:** Claude Desktop requires stdio transport. Use the Docker configuration shown in "Configure Claude Desktop" section above.
-
-## Docker Deployment
-
-### Dual-Database Architecture + Web UI (v2.0.0+)
-
-For Knowledge Graph features, Memoria uses PostgreSQL alongside Qdrant, plus an optional Web UI:
-
-```
-┌─────────────────┐     ┌─────────────────┐
-│  Claude Code 1  │     │  Claude Code 2  │
-│       │         │     │       │         │
-│  ┌────▼────┐    │     │  ┌────▼────┐    │
-│  │ Memoria │    │     │  │ Memoria │    │  ← LOCAL PROCESSES (stdio)
-│  │ (local) │    │     │  │ (local) │    │    Isolated WorkingMemory
-│  └────┬────┘    │     │  └────┬────┘    │
-└───────┼─────────┘     └───────┼─────────┘
-        │                       │
-        └───────────┬───────────┘
-                    │
-┌───────────────────▼───────────────────────────────────┐
-│                    Central Docker                      │
-│                                                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐  │
-│  │   Qdrant    │  │ PostgreSQL  │  │  Web UI + API │  │
-│  │   :6333     │  │   :5433     │  │  :3000 / :8765│  │
-│  │  (vectors)  │  │ (relations) │  │               │  │
-│  └─────────────┘  └─────────────┘  └───────────────┘  │
-└───────────────────────────────────────────────────────┘
-                    │
-        ┌───────────▼───────────┐
-        │  Browser (any device) │  → http://localhost:3000
-        │  - Knowledge Graph    │
-        │  - Memory Browser     │
-        │  - Dashboard          │
-        └───────────────────────┘
-```
-
-**Start everything with one command:**
-
-```bash
-cd docker && ./start.sh central
-```
-
-Or manually:
-
-```bash
-cd docker && docker-compose -f docker-compose.central.yml up -d
-```
-
-This provides:
-- **Qdrant** on port 6333 (vector storage)
-- **PostgreSQL** on port 5433 (relational data, knowledge graph)
-- **Web UI** on port 3000 (Knowledge Graph Explorer)
-- **REST API** on port 8765 (for custom integrations)
-
-**Web UI Features:**
-- **Dashboard**: Memory stats and quick actions
-- **Knowledge Graph Explorer**: Interactive force-directed graph visualization
-- **Memory Search**: Semantic search with filters
-- **Relation Management**: Create/view/delete relations between memories
-- **AI Suggestions**: Get recommended relations based on content similarity
-
-**Access the Web UI:**
-- Open http://localhost:3000 in your browser
-- API documentation at http://localhost:8765/docs
-
-**Environment Configuration:**
-
-Create a `.env` file in the `docker/` folder (copy from `.env.example`):
-
-```bash
-# PostgreSQL password (default: memoria_dev)
-POSTGRES_PASSWORD=your_secure_password
-
-# Embedding model (default: nomic-embed-text)
-EMBEDDING_MODEL=nomic-embed-text
-```
-
-Each Claude Code session runs its own local Memoria process, ensuring isolated WorkingMemory while sharing persistent storage.
-
-### Recommended Setup: Dockerized Memoria with Persistent Qdrant
-
-This setup runs Qdrant persistently via docker-compose, while each Claude Code session spawns its own ephemeral Memoria container. This provides:
-
-- **Persistent storage**: Qdrant keeps all memories across sessions
-- **Clean sessions**: Each Claude instance gets a fresh Memoria container (removed on exit)
-- **Native GPU**: Ollama runs on your Mac with Metal acceleration
-
-#### Step 1: Start Qdrant (one-time setup)
-
-```bash
-cd docker
-docker-compose -f docker-compose.qdrant-only.yml up -d
-```
-
-This creates:
-- `memoria-qdrant` container (persistent)
-- `memoria-network` Docker network
-- `qdrant_data` volume for persistent storage
-
-#### Step 2: Build the Memoria Image
-
-```bash
-cd docker
-docker build -t docker-memoria .
-```
-
-#### Step 3: Configure Claude Code
-
-Add to your Claude Code MCP configuration (`~/.claude.json` or project settings).
-
-**Option A: Python direct (if installed locally)**
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "python",
-      "args": ["-m", "mcp_memoria"],
-      "env": {
-        "MEMORIA_QDRANT_HOST": "localhost",
-        "MEMORIA_QDRANT_PORT": "6333",
-        "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
-      }
-    }
-  }
-}
-```
-
-**Option B: Docker stdio (recommended)**
-
-Each session spawns a new container that is removed on exit:
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "--network", "memoria-network",
-        "-v", "/tmp/memoria-logs:/logs",
-        "-e", "MEMORIA_QDRANT_HOST=memoria-qdrant",
-        "-e", "MEMORIA_QDRANT_PORT=6333",
-        "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
-        "-e", "MEMORIA_LOG_LEVEL=WARNING",
-        "-e", "MEMORIA_LOG_FILE=/logs/memoria.log",
-        "mcp-memoria:latest"
-      ]
-    }
-  }
-}
-```
-
-**Flags explained**:
-- `--rm`: Remove container when Claude session ends
-- `-i`: Interactive mode for MCP stdio communication
-- `--network memoria-network`: Connect to Qdrant's network
-- `-v /tmp/memoria-logs:/logs`: Mount volume for persistent logs
-
-**Option C: HTTP/SSE transport** ⚠️ *Testing/Development Only*
-
-> **Warning:** HTTP mode shares WorkingMemory across all connected clients. This can cause context confusion between sessions. Use only for testing, demos, or single-user scenarios.
-
-With HTTP mode, you run a persistent Memoria server and Claude Code connects to it via URL.
-
-**Step 1**: Start the HTTP server (keep it running):
-
-```bash
-# Using docker-compose (recommended)
-cd docker && docker-compose -f docker-compose.http.yml up -d
-
-# Or manually with docker run
-docker run -d --name memoria-http \
-  -p 8765:8765 \
-  --network memoria-network \
-  -e MEMORIA_HTTP_PORT=8765 \
-  -e MEMORIA_QDRANT_HOST=memoria-qdrant \
-  -e MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434 \
-  mcp-memoria:latest
-```
-
-**Step 2**: Configure Claude Code to connect via URL:
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "url": "http://localhost:8765/sse"
-    }
-  }
-}
-```
-
-> **Note**: The `url` config only works if the server is already running. Claude Code connects to an existing server - it doesn't launch anything.
-
-#### Environment Variables
-
-| Variable | Value | Why |
-|----------|-------|-----|
-| `MEMORIA_QDRANT_HOST` | `memoria-qdrant` | Container name on Docker network (NOT `localhost`) |
-| `MEMORIA_QDRANT_PORT` | `6333` | Qdrant's default port |
-| `MEMORIA_OLLAMA_HOST` | `http://host.docker.internal:11434` | Special Docker DNS to reach host's native Ollama |
-
-> **Note**: Inside a Docker container, `localhost` refers to the container itself. Use container names for inter-container communication on the same Docker network.
-
-#### Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Your Mac/Host                         │
-│                                                          │
-│  ┌─────────────┐                                        │
-│  │   Ollama    │◀─── host.docker.internal:11434         │
-│  │  (native)   │     (Metal GPU acceleration)           │
-│  └─────────────┘                                        │
-│                                                          │
-│  ┌────────────────── memoria-network ─────────────────┐ │
-│  │                                                     │ │
-│  │  ┌──────────────────┐    ┌──────────────────────┐  │ │
-│  │  │  docker-memoria  │───▶│    memoria-qdrant    │  │ │
-│  │  │   (ephemeral)    │    │    (persistent)      │  │ │
-│  │  │   per session    │    │    via compose       │  │ │
-│  │  └──────────────────┘    └──────────────────────┘  │ │
-│  │           │                       │                │ │
-│  └───────────┼───────────────────────┼────────────────┘ │
-│              │                       │                  │
-│              ▼                       ▼                  │
-│     host.docker.internal      qdrant_data volume       │
-│                                (persistent)             │
-└─────────────────────────────────────────────────────────┘
-```
-
-#### Managing the Setup
-
-```bash
-# Check Qdrant status
-docker-compose -f docker-compose.qdrant-only.yml ps
-
-# View Qdrant logs
-docker-compose -f docker-compose.qdrant-only.yml logs -f
-
-# Stop Qdrant (memories preserved in volume)
-docker-compose -f docker-compose.qdrant-only.yml down
-
-# Reset all memories (destructive!)
-docker-compose -f docker-compose.qdrant-only.yml down -v
-```
-
-### macOS (with native Ollama)
-
-If you have Ollama installed natively on your Mac (recommended for Metal GPU acceleration):
-
-```bash
-# 1. Ensure Ollama is running
-ollama serve
-
-# 2. Pull the embedding model
-ollama pull nomic-embed-text
-
-# 3. Start containers (Qdrant + Memoria only)
-cd docker
-docker-compose -f docker-compose.mac.yml up -d
-
-# 4. Check status
-docker-compose -f docker-compose.mac.yml ps
-
-# 5. Stop
-docker-compose -f docker-compose.mac.yml down
-```
-
-This starts:
-- Qdrant vector database (containerized)
-- MCP Memoria server (containerized, connects to host Ollama)
-
-### Full Stack (Linux/GPU)
-
-For a fully containerized setup with Ollama included:
-
-```bash
-# With GPU support (NVIDIA)
-cd docker
-docker-compose up -d
-
-# CPU only
-docker-compose -f docker-compose.cpu.yml up -d
-```
-
-This starts:
-- Qdrant vector database
-- Ollama with embedding models
-- MCP Memoria server
-
-## Multi-Node Sync
+### Multi-Node Sync
 
 If you run Qdrant on multiple machines (e.g., a Mac and a Linux server), you can keep them synchronized using the included sync script.
-
-### How It Works
 
 The sync script (`scripts/sync_qdrant.py`) performs **incremental bidirectional synchronization**:
 
 - **New memories**: Copied to the other node
 - **Updated memories**: Newer timestamp wins
 - **Deleted memories**: Propagated to the other node
-
-The script tracks the last sync timestamp in `~/.mcp-memoria/sync_state.json` to determine what's new vs. what's been deleted.
-
-### Configuration
-
-Edit the script to set your node addresses:
-
-```python
-LOCAL_URL = "http://localhost:6333"
-REMOTE_URL = "http://your-server.local:6333"  # Your remote hostname
-REMOTE_IP = "192.168.1.51"                    # Fallback IP if hostname doesn't resolve
-```
-
-### Usage
 
 ```bash
 # Run sync
@@ -771,103 +579,81 @@ python scripts/sync_qdrant.py --dry-run
 
 # Verbose output
 python scripts/sync_qdrant.py -v
-
-# Reset sync state (treat all as new, no deletions)
-python scripts/sync_qdrant.py --reset-state
 ```
 
-### Scheduling
+Edit the script to set your node addresses:
 
-You can schedule the sync to run automatically using cron (Linux) or launchd (macOS).
+```python
+LOCAL_URL = "http://localhost:6333"
+REMOTE_URL = "http://your-server.local:6333"
+```
 
-#### macOS (launchd)
+### HTTP/SSE Transport
 
-1. **Create the plist file**:
+> ⚠️ **Warning**: HTTP mode is for testing/development only. It shares WorkingMemory across all connected clients, which can cause context confusion.
+
+For scenarios where you can't spawn processes (web apps, remote access):
 
 ```bash
-cat > ~/Library/LaunchAgents/com.memoria.sync.plist << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.memoria.sync</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/bin/python3</string>
-        <string>/path/to/mcp-memoria/scripts/sync_qdrant.py</string>
-    </array>
-    <key>StartInterval</key>
-    <integer>300</integer>
-    <key>StandardOutPath</key>
-    <string>/tmp/memoria-sync.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/memoria-sync.log</string>
-    <key>RunAtLoad</key>
-    <true/>
-</dict>
-</plist>
-EOF
+# Start HTTP server
+cd docker && docker-compose -f docker-compose.http.yml up -d
+
+# Configure Claude to connect via URL
+{
+  "mcpServers": {
+    "memoria": {
+      "url": "http://localhost:8765/sse"
+    }
+  }
+}
 ```
 
-2. **Edit the plist** to set the correct path to `sync_qdrant.py`
+**Endpoints:**
+- `GET /sse` — SSE connection endpoint
+- `POST /messages/` — Message endpoint
+- `GET /health` — Health check
 
-3. **Load the agent**:
+### Content Chunking
 
-```bash
-launchctl load ~/Library/LaunchAgents/com.memoria.sync.plist
-```
+When a memory exceeds `MEMORIA_CHUNK_SIZE` characters (default 500), it is automatically split into overlapping chunks. Each chunk is stored as a separate Qdrant point with its own embedding, linked to the original memory via a `parent_id`.
 
-4. **Manage the agent**:
+**How it works:**
 
-```bash
-# Check status
-launchctl list | grep memoria
+- **Store**: long content → TextChunker → N chunks → N embeddings → N Qdrant points (same `parent_id`)
+- **Recall/Search**: query matches individual chunks; results are deduplicated by `parent_id`, returning the full original content
+- **Update**: content changes delete all existing chunks and re-create them; metadata-only changes propagate to every chunk
+- **Delete**: removes all points belonging to the logical memory
 
-# Stop the agent
-launchctl unload ~/Library/LaunchAgents/com.memoria.sync.plist
+Chunking is transparent — callers always see complete memories, never individual chunks.
 
-# Restart after editing
-launchctl unload ~/Library/LaunchAgents/com.memoria.sync.plist
-launchctl load ~/Library/LaunchAgents/com.memoria.sync.plist
-
-# View logs
-tail -f /tmp/memoria-sync.log
-```
-
-#### Linux (cron)
-
-```bash
-# Edit crontab
-crontab -e
-
-# Add this line (runs every 5 minutes)
-*/5 * * * * /usr/bin/python3 /path/to/mcp-memoria/scripts/sync_qdrant.py >> ~/.mcp-memoria/sync.log 2>&1
-```
+---
 
 ## Configuration
 
-Environment variables:
+All settings via environment variables with `MEMORIA_` prefix:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MEMORIA_QDRANT_PATH` | `~/.mcp-memoria/qdrant` | Qdrant storage path |
-| `MEMORIA_QDRANT_HOST` | - | Qdrant server host (for server mode) |
+| `MEMORIA_QDRANT_HOST` | - | Qdrant server host |
+| `MEMORIA_QDRANT_PORT` | `6333` | Qdrant port |
+| `MEMORIA_QDRANT_PATH` | `~/.mcp-memoria/qdrant` | Local Qdrant storage path (if no host) |
 | `MEMORIA_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `MEMORIA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model |
 | `MEMORIA_CACHE_ENABLED` | `true` | Enable embedding cache |
-| `MEMORIA_CHUNK_SIZE` | `500` | Max characters per chunk (long content is split automatically) |
-| `MEMORIA_CHUNK_OVERLAP` | `50` | Overlap characters between consecutive chunks |
+| `MEMORIA_CHUNK_SIZE` | `500` | Max characters per chunk |
+| `MEMORIA_CHUNK_OVERLAP` | `50` | Overlap between consecutive chunks |
 | `MEMORIA_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
-| `MEMORIA_LOG_FILE` | - | Path to log file (logs to file in addition to stderr) |
-| `MEMORIA_HTTP_PORT` | - | HTTP port for SSE transport (enables HTTP mode instead of stdio) |
-| `MEMORIA_HTTP_HOST` | `0.0.0.0` | HTTP host to bind to (only used with HTTP mode) |
-| `MEMORIA_DATABASE_URL` | - | PostgreSQL connection URL for Knowledge Graph (optional) |
+| `MEMORIA_LOG_FILE` | - | Path to log file (in addition to stderr) |
+| `MEMORIA_HTTP_PORT` | - | HTTP port (enables HTTP mode) |
+| `MEMORIA_HTTP_HOST` | `0.0.0.0` | HTTP host to bind to |
+| `MEMORIA_DATABASE_URL` | - | PostgreSQL URL for Knowledge Graph |
 | `MEMORIA_PG_HOST` | - | PostgreSQL host (alternative to DATABASE_URL) |
 | `MEMORIA_PG_PORT` | `5432` | PostgreSQL port |
 | `MEMORIA_PG_USER` | `memoria` | PostgreSQL username |
 | `MEMORIA_PG_PASSWORD` | - | PostgreSQL password |
 | `MEMORIA_PG_DATABASE` | `memoria` | PostgreSQL database name |
+
+---
 
 ## Memory Types
 
@@ -892,54 +678,7 @@ For skills and procedures:
 - Testing procedures
 - Common code patterns
 
-## Content Chunking
-
-When a memory exceeds `MEMORIA_CHUNK_SIZE` characters (default 500), it is automatically split into overlapping chunks. Each chunk is stored as a separate Qdrant point with its own embedding, linked to the original memory via a `parent_id`.
-
-**How it works:**
-
-- **Store**: long content → TextChunker → N chunks → N embeddings → N Qdrant points (same `parent_id`)
-- **Recall/Search**: query matches individual chunks; results are deduplicated by `parent_id`, returning the full original content
-- **Update**: content changes delete all existing chunks and re-create them; metadata-only changes propagate to every chunk
-- **Delete**: removes all points belonging to the logical memory
-- **Consolidate**: only operates on representative points (`chunk_index == 0`), ignoring sibling chunks
-- **Export/Import**: exports the full content once per logical memory, stripping chunk-specific fields
-
-Chunking is transparent — callers always see complete memories, never individual chunks.
-
-## Architecture
-
-```
-┌─────────────────────────────────────┐
-│         Claude Code/Desktop          │
-└───────────────┬─────────────────────┘
-                │ MCP Protocol
-                ▼
-┌─────────────────────────────────────┐
-│         MCP Memoria Server           │
-├─────────────────────────────────────┤
-│  Tools: store, recall, search,       │
-│         link, related, path, etc.    │
-├─────────────────────────────────────┤
-│  Memory Manager  │  Graph Manager    │
-│  ┌─────────────┐ │  ┌─────────────┐ │
-│  │  Episodic   │ │  │  Relations  │ │
-│  │  Semantic   │ │  │  Traversal  │ │
-│  │  Procedural │ │  │  Suggestions│ │
-│  └─────────────┘ │  └─────────────┘ │
-├─────────────────────────────────────┤
-│  TextChunker │ Ollama     │ Storage  │
-│  (splitting) │ (embed)    │          │
-│              │            │ ┌──────┐ │
-│              │            │ │Qdrant│ │
-│              │            │ │(vec) │ │
-│              │            │ └──────┘ │
-│              │            │ ┌──────┐ │
-│              │            │ │Postgr│ │
-│              │            │ │(rel) │ │
-│              │            │ └──────┘ │
-└─────────────────────────────────────┘
-```
+---
 
 ## Troubleshooting
 
@@ -947,10 +686,12 @@ Chunking is transparent — callers always see complete memories, never individu
 
 #### "Failed to connect" when starting Claude
 
+**Most common cause**: Backend services not running. Make sure to start Docker services BEFORE launching Claude.
+
 1. **Check Qdrant is running**:
    ```bash
-   curl http://localhost:6333/healthz
-   # Should return: healthz check passed
+   curl http://localhost:6333/health
+   # Should return: {"title":"qdrant","version":"..."}
    ```
 
 2. **Check Ollama is running**:
@@ -961,19 +702,24 @@ Chunking is transparent — callers always see complete memories, never individu
 
 3. **Verify the embedding model is installed**:
    ```bash
-   ollama pull nomic-embed-text
+   ollama list | grep nomic-embed-text
+   ```
+
+4. **Check PostgreSQL (if using full setup)**:
+   ```bash
+   docker exec memoria-postgres pg_isready -U memoria
    ```
 
 #### "Connection refused" errors
 
-- Ensure Qdrant is accessible on port 6333
-- For Docker setups, verify the network configuration
+- Ensure services are running: `docker-compose -f docker-compose.central.yml ps`
+- For Docker setups, verify the network: `docker network ls | grep memoria`
 - Check firewall settings if running on remote servers
 
 #### Memories not being found
 
 - Run `memoria_stats` to verify memories are being stored
-- Check that the embedding model is working: memories require embeddings for semantic search
+- Check that the embedding model is working
 - Try consolidating memories if you have many similar entries
 
 #### Slow performance
@@ -987,7 +733,6 @@ Chunking is transparent — callers always see complete memories, never individu
 Enable debug logging for more information:
 
 ```bash
-# Set environment variable before starting
 export MEMORIA_LOG_LEVEL=DEBUG
 ```
 
@@ -995,48 +740,8 @@ Or in Claude config:
 ```json
 {
   "env": {
-    "MEMORIA_LOG_LEVEL": "DEBUG"
-  }
-}
-```
-
-### File Logging
-
-By default, Memoria logs to stderr (required for MCP protocol). You can additionally log to a file for persistent debugging or auditing:
-
-```bash
-# Log to a specific file
-export MEMORIA_LOG_FILE=~/.mcp-memoria/logs/memoria.log
-```
-
-Or in Claude config:
-```json
-{
-  "env": {
-    "MEMORIA_LOG_FILE": "/Users/yourname/.mcp-memoria/logs/memoria.log"
-  }
-}
-```
-
-**Notes:**
-- The log directory will be created automatically if it doesn't exist
-- File logging is **in addition to** stderr logging (both outputs are active)
-- Useful for debugging issues that occur during Claude sessions
-- Combine with `MEMORIA_LOG_LEVEL=DEBUG` for detailed diagnostics
-
-**Example: Full debug configuration**
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "python",
-      "args": ["-m", "mcp_memoria"],
-      "env": {
-        "MEMORIA_QDRANT_HOST": "localhost",
-        "MEMORIA_LOG_LEVEL": "DEBUG",
-        "MEMORIA_LOG_FILE": "/Users/yourname/.mcp-memoria/logs/memoria.log"
-      }
-    }
+    "MEMORIA_LOG_LEVEL": "DEBUG",
+    "MEMORIA_LOG_FILE": "/tmp/memoria.log"
   }
 }
 ```
@@ -1046,13 +751,13 @@ Or in Claude config:
 To completely reset Memoria and start fresh:
 
 ```bash
-# If using local Qdrant storage
-rm -rf ~/.mcp-memoria/qdrant
-
-# If using Docker Qdrant
-docker-compose -f docker-compose.qdrant-only.yml down -v
-docker-compose -f docker-compose.qdrant-only.yml up -d
+# Stop services and delete all data (⚠️ irreversible!)
+cd docker
+docker-compose -f docker-compose.central.yml down -v
+docker-compose -f docker-compose.central.yml up -d
 ```
+
+---
 
 ## Development
 
@@ -1070,6 +775,8 @@ mypy src/mcp_memoria
 ruff check src/mcp_memoria
 ```
 
+---
+
 ## Comparison
 
 | Feature | MCP Memoria | Memvid | Mem0 |
@@ -1079,6 +786,8 @@ ruff check src/mcp_memoria
 | MCP Native | Yes | No | No |
 | Cost | Free | Freemium | Freemium |
 | Vector DB | Qdrant | Custom | Cloud |
+
+---
 
 ## License
 

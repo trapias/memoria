@@ -22,6 +22,8 @@ export default function MemoriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [memoryType, setMemoryType] = useState("all");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [createdAfter, setCreatedAfter] = useState("");
+  const [createdBefore, setCreatedBefore] = useState("");
   const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState("desc");
   const [offset, setOffset] = useState(0);
@@ -39,11 +41,13 @@ export default function MemoriesPage() {
     memory_type: memoryType !== "all" ? memoryType : undefined,
     tags: selectedTags.length > 0 ? selectedTags.join(",") : undefined,
     query: searchQuery || undefined,
+    created_after: createdAfter || undefined,
+    created_before: createdBefore || undefined,
     sort_by: sortBy as "created_at" | "updated_at" | "importance",
     sort_order: sortOrder as "asc" | "desc",
     limit,
     offset,
-  }), [searchQuery, memoryType, selectedTags, sortBy, sortOrder, offset]);
+  }), [searchQuery, memoryType, selectedTags, createdAfter, createdBefore, sortBy, sortOrder, offset]);
 
   // Queries
   const { data, isLoading, error, refetch } = useMemoryList(queryParams);
@@ -56,6 +60,17 @@ export default function MemoriesPage() {
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
     setOffset(0); // Reset pagination
+  }, []);
+
+  const handleClearTags = useCallback(() => {
+    setSelectedTags([]);
+    setOffset(0);
+  }, []);
+
+  const handleClearDateFilter = useCallback(() => {
+    setCreatedAfter("");
+    setCreatedBefore("");
+    setOffset(0);
   }, []);
 
   const handleViewMemory = (memory: Memory) => {
@@ -131,6 +146,12 @@ export default function MemoriesPage() {
             onMemoryTypeChange={(t) => { setMemoryType(t); setOffset(0); }}
             selectedTags={selectedTags}
             onTagToggle={handleTagToggle}
+            onClearTags={handleClearTags}
+            createdAfter={createdAfter}
+            onCreatedAfterChange={(d) => { setCreatedAfter(d); setOffset(0); }}
+            createdBefore={createdBefore}
+            onCreatedBeforeChange={(d) => { setCreatedBefore(d); setOffset(0); }}
+            onClearDateFilter={handleClearDateFilter}
             sortBy={sortBy}
             onSortByChange={setSortBy}
             sortOrder={sortOrder}

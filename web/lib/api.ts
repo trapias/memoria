@@ -128,6 +128,8 @@ export interface ListMemoriesParams {
   tags?: string;
   query?: string;
   text_match?: string;
+  created_after?: string;
+  created_before?: string;
   limit?: number;
   offset?: number;
   sort_by?: "created_at" | "updated_at" | "importance";
@@ -280,6 +282,8 @@ class ApiClient {
     if (params.tags) urlParams.set("tags", params.tags);
     if (params.query) urlParams.set("query", params.query);
     if (params.text_match) urlParams.set("text_match", params.text_match);
+    if (params.created_after) urlParams.set("created_after", params.created_after);
+    if (params.created_before) urlParams.set("created_before", params.created_before);
     if (params.limit) urlParams.set("limit", params.limit.toString());
     if (params.offset) urlParams.set("offset", params.offset.toString());
     if (params.sort_by) urlParams.set("sort_by", params.sort_by);

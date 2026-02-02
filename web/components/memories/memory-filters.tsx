@@ -3,7 +3,6 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -11,16 +10,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useTags, MEMORY_TYPE_COLORS } from "@/lib/hooks/use-memories";
+import { useTags } from "@/lib/hooks/use-memories";
 import { cn } from "@/lib/utils";
+import { TagCombobox } from "./tag-combobox";
+import { DateRangeFilter } from "./date-range-filter";
 
 interface MemoryFiltersProps {
+  // Search
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  // Memory type
   memoryType: string;
   onMemoryTypeChange: (type: string) => void;
+  // Tags
   selectedTags: string[];
   onTagToggle: (tag: string) => void;
+  onClearTags?: () => void;
+  // Date range
+  createdAfter?: string;
+  onCreatedAfterChange?: (date: string) => void;
+  createdBefore?: string;
+  onCreatedBeforeChange?: (date: string) => void;
+  onClearDateFilter?: () => void;
+  // Sort
   sortBy: string;
   onSortByChange: (sortBy: string) => void;
   sortOrder: string;
@@ -34,6 +46,12 @@ export function MemoryFilters({
   onMemoryTypeChange,
   selectedTags,
   onTagToggle,
+  onClearTags,
+  createdAfter = "",
+  onCreatedAfterChange,
+  createdBefore = "",
+  onCreatedBeforeChange,
+  onClearDateFilter,
   sortBy,
   onSortByChange,
   sortOrder,
@@ -41,9 +59,11 @@ export function MemoryFilters({
 }: MemoryFiltersProps) {
   const { data: allTags = [] } = useTags();
 
+  const hasDateFilterSupport = onCreatedAfterChange && onCreatedBeforeChange && onClearDateFilter;
+
   return (
     <div className="space-y-4">
-      {/* Search */}
+      {/* Row 1: Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -64,8 +84,8 @@ export function MemoryFilters({
         )}
       </div>
 
-      {/* Type and Sort Row */}
-      <div className="flex flex-wrap gap-2">
+      {/* Row 2: Type, Date, Sort */}
+      <div className="flex flex-wrap gap-2 items-start">
         {/* Memory Type Filter */}
         <Select value={memoryType} onValueChange={onMemoryTypeChange}>
           <SelectTrigger className="w-[140px]">
@@ -94,9 +114,23 @@ export function MemoryFilters({
           </SelectContent>
         </Select>
 
+        {/* Date Range Filter */}
+        {hasDateFilterSupport && (
+          <DateRangeFilter
+            createdAfter={createdAfter}
+            createdBefore={createdBefore}
+            onCreatedAfterChange={onCreatedAfterChange}
+            onCreatedBeforeChange={onCreatedBeforeChange}
+            onClear={onClearDateFilter}
+          />
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
         {/* Sort By */}
         <Select value={sortBy} onValueChange={onSortByChange}>
-          <SelectTrigger className="w-[140px]">
+          <SelectTrigger className="w-[120px]">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
@@ -118,58 +152,16 @@ export function MemoryFilters({
         </Select>
       </div>
 
-      {/* Tags */}
+      {/* Row 3: Tag Combobox */}
       {allTags.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">Filter by tags:</p>
-          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-            {allTags.slice(0, 30).map((tag) => {
-              const isSelected = selectedTags.includes(tag);
-              return (
-                <Badge
-                  key={tag}
-                  variant={isSelected ? "default" : "outline"}
-                  className={cn(
-                    "cursor-pointer transition-colors",
-                    isSelected && "bg-primary"
-                  )}
-                  onClick={() => onTagToggle(tag)}
-                >
-                  {tag}
-                </Badge>
-              );
-            })}
-            {allTags.length > 30 && (
-              <span className="text-xs text-muted-foreground self-center">
-                +{allTags.length - 30} more
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Active Filters */}
-      {(selectedTags.length > 0 || memoryType !== "all") && (
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Active:</span>
-          {memoryType !== "all" && (
-            <Badge variant="secondary" className="gap-1">
-              {memoryType}
-              <X
-                className="h-3 w-3 cursor-pointer"
-                onClick={() => onMemoryTypeChange("all")}
-              />
-            </Badge>
-          )}
-          {selectedTags.map((tag) => (
-            <Badge key={tag} variant="secondary" className="gap-1">
-              {tag}
-              <X
-                className="h-3 w-3 cursor-pointer"
-                onClick={() => onTagToggle(tag)}
-              />
-            </Badge>
-          ))}
+        <div className="border-t pt-4">
+          <TagCombobox
+            allTags={allTags}
+            selectedTags={selectedTags}
+            onTagToggle={onTagToggle}
+            onClearAll={onClearTags}
+            placeholder="Search and filter by tags..."
+          />
         </div>
       )}
     </div>

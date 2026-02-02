@@ -2,8 +2,11 @@
 Statistics API endpoints.
 """
 
+import logging
 from typing import Dict, Any
 from fastapi import APIRouter, Request
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -28,13 +31,11 @@ async def get_stats(request: Request) -> Dict[str, Any]:
             # Count relations in the database
             database = getattr(request.app.state, "database", None)
             if database:
-                async with database.pool.acquire() as conn:
-                    result = await conn.fetchval(
-                        "SELECT COUNT(*) FROM memory_relations"
-                    )
-                    total_relations = result or 0
-        except Exception:
-            pass
+                total_relations = await database.fetchval(
+                    "SELECT COUNT(*) FROM memory_relations"
+                ) or 0
+        except Exception as e:
+            logger.warning(f"Failed to get relation count: {e}")
 
     # Extract counts from collections dict
     collections = memory_stats.get("collections", {})
