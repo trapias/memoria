@@ -23,8 +23,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, ArrowLeft, Link2, Eye, Target, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, ArrowLeft, Link2, Eye, Target, Plus, Trash2, Maximize2 } from "lucide-react";
 import { MarkdownContent } from "@/components/ui/markdown-content";
+import { MemoryDetail } from "@/components/memories/memory-detail";
+import { useUpdateMemory, useDeleteMemory } from "@/lib/hooks/use-memories";
+import { useQueryClient } from "@tanstack/react-query";
 
 // Strip markdown syntax from labels for display as plain titles
 function cleanLabel(label: string): string {
@@ -52,7 +55,11 @@ export function GraphSidebar({
   onAddRelation,
 }: GraphSidebarProps) {
   const [deleteConfirm, setDeleteConfirm] = useState<Relation | null>(null);
+  const [showMemoryDetail, setShowMemoryDetail] = useState(false);
   const deleteMutation = useDeleteRelation();
+  const updateMutation = useUpdateMemory();
+  const deleteMemoryMutation = useDeleteMemory();
+  const queryClient = useQueryClient();
 
   // Helper to get node label by ID (cleaned from markdown)
   const getNodeLabel = (id: string): string => {
@@ -79,6 +86,27 @@ export function GraphSidebar({
       relationType: deleteConfirm.type,
     });
     setDeleteConfirm(null);
+  };
+
+  const handleSaveMemory = async (updates: {
+    content?: string;
+    tags?: string[];
+    importance?: number;
+    metadata?: Record<string, unknown>;
+  }) => {
+    if (!selectedNode) return;
+    await updateMutation.mutateAsync({
+      id: selectedNode.id,
+      updates,
+    });
+    queryClient.invalidateQueries({ queryKey: ["memory", selectedNode.id] });
+  };
+
+  const handleDeleteMemory = async () => {
+    if (!selectedNode) return;
+    await deleteMemoryMutation.mutateAsync(selectedNode.id);
+    setShowMemoryDetail(false);
+    onNodeSelect(null);
   };
 
   const { data: memory } = useMemory(selectedNode?.id ?? null);
@@ -129,7 +157,19 @@ export function GraphSidebar({
         <CardContent className="space-y-3">
           {memory?.content && (
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Content</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm text-muted-foreground">Content</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setShowMemoryDetail(true)}
+                  title="View full memory details"
+                >
+                  <Maximize2 className="h-3 w-3 mr-1" />
+                  Full Details
+                </Button>
+              </div>
               <div className="line-clamp-6">
                 <MarkdownContent content={memory.content} />
               </div>
@@ -307,6 +347,20 @@ export function GraphSidebar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Memory Detail Dialog */}
+      <MemoryDetail
+        memory={memory ?? null}
+        open={showMemoryDetail}
+        onOpenChange={setShowMemoryDetail}
+        onSave={handleSaveMemory}
+        onDelete={handleDeleteMemory}
+        onViewRelations={() => {
+          setShowMemoryDetail(false);
+          // Already in graph view, just close the dialog
+        }}
+        isSaving={updateMutation.isPending}
+      />
     </div>
   );
 }
