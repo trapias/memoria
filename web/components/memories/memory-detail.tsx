@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Edit2, Save, X, Clock, Star, Link2, Trash2 } from "lucide-react";
+import { Edit2, Save, X, Clock, Star, Link2, Trash2, Plus, Minus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,11 +20,21 @@ import { MEMORY_TYPE_COLORS } from "@/lib/hooks/use-memories";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 
+interface MetadataEntry {
+  key: string;
+  value: string;
+}
+
 interface MemoryDetailProps {
   memory: Memory | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (updates: { content?: string; tags?: string[]; importance?: number }) => void;
+  onSave: (updates: {
+    content?: string;
+    tags?: string[];
+    importance?: number;
+    metadata?: Record<string, unknown>;
+  }) => void;
   onDelete: () => void;
   onViewRelations: () => void;
   isSaving?: boolean;
@@ -43,12 +53,19 @@ export function MemoryDetail({
   const [editContent, setEditContent] = useState("");
   const [editTags, setEditTags] = useState("");
   const [editImportance, setEditImportance] = useState(0.5);
+  const [editMetadata, setEditMetadata] = useState<MetadataEntry[]>([]);
 
   const startEditing = () => {
     if (!memory) return;
     setEditContent(memory.content);
     setEditTags(memory.tags.join(", "));
     setEditImportance(memory.importance);
+    // Convert metadata object to array of entries
+    const entries = Object.entries(memory.metadata || {}).map(([key, value]) => ({
+      key,
+      value: typeof value === "string" ? value : JSON.stringify(value),
+    }));
+    setEditMetadata(entries.length > 0 ? entries : [{ key: "", value: "" }]);
     setIsEditing(true);
   };
 
@@ -62,12 +79,49 @@ export function MemoryDetail({
       .map((t) => t.trim())
       .filter(Boolean);
 
+    // Convert metadata entries back to object, filtering out empty keys
+    const metadata: Record<string, unknown> = {};
+    for (const entry of editMetadata) {
+      if (entry.key.trim()) {
+        // Try to parse as JSON for non-string values
+        try {
+          metadata[entry.key.trim()] = JSON.parse(entry.value);
+        } catch {
+          metadata[entry.key.trim()] = entry.value;
+        }
+      }
+    }
+
+    // Check if metadata changed
+    const originalMetadata = memory?.metadata || {};
+    const metadataChanged =
+      JSON.stringify(metadata) !== JSON.stringify(originalMetadata);
+
     onSave({
       content: editContent !== memory?.content ? editContent : undefined,
       tags: tags.join(",") !== memory?.tags.join(",") ? tags : undefined,
       importance: editImportance !== memory?.importance ? editImportance : undefined,
+      metadata: metadataChanged ? metadata : undefined,
     });
     setIsEditing(false);
+  };
+
+  const addMetadataEntry = () => {
+    setEditMetadata([...editMetadata, { key: "", value: "" }]);
+  };
+
+  const removeMetadataEntry = (index: number) => {
+    setEditMetadata(editMetadata.filter((_, i) => i !== index));
+  };
+
+  const updateMetadataEntry = (
+    index: number,
+    field: "key" | "value",
+    value: string
+  ) => {
+    const updated = [...editMetadata];
+    updated[index] = { ...updated[index], [field]: value };
+    setEditMetadata(updated);
   };
 
   const formatDate = (dateStr: string) => {
@@ -171,7 +225,85 @@ export function MemoryDetail({
             )}
           </div>
 
-          {/* Metadata */}
+          {/* Custom Metadata */}
+          <div className="space-y-2 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <Label>Metadata</Label>
+              {isEditing && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addMetadataEntry}
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add
+                </Button>
+              )}
+            </div>
+            {isEditing ? (
+              <div className="space-y-2">
+                {editMetadata.map((entry, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      value={entry.key}
+                      onChange={(e) =>
+                        updateMetadataEntry(index, "key", e.target.value)
+                      }
+                      placeholder="key"
+                      className="w-1/3 text-sm"
+                    />
+                    <Input
+                      value={entry.value}
+                      onChange={(e) =>
+                        updateMetadataEntry(index, "value", e.target.value)
+                      }
+                      placeholder="value"
+                      className="flex-1 text-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeMetadataEntry(index)}
+                      className="px-2"
+                    >
+                      <Minus className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                ))}
+                {editMetadata.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No metadata. Click "Add" to add key-value pairs.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {memory.metadata && Object.keys(memory.metadata).length > 0 ? (
+                  Object.entries(memory.metadata).map(([key, value]) => (
+                    <div
+                      key={key}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <span className="font-medium text-muted-foreground">
+                        {key}:
+                      </span>
+                      <span className="font-mono">
+                        {typeof value === "string" ? value : JSON.stringify(value)}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    No metadata
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Timestamps */}
           <div className="grid grid-cols-2 gap-4 pt-4 border-t">
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Created</p>

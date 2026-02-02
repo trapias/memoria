@@ -103,6 +103,7 @@ export default function MemoriesPage() {
     content?: string;
     tags?: string[];
     importance?: number;
+    metadata?: Record<string, unknown>;
   }) => {
     if (!selectedMemory) return;
 

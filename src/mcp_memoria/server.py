@@ -100,7 +100,12 @@ class MemoriaServer:
                             },
                             "project": {
                                 "type": "string",
-                                "description": "Associated project name",
+                                "description": "Associated project name (shortcut for metadata.project)",
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Additional metadata as key-value pairs (e.g., {\"client\": \"Acme\", \"sprint\": 12})",
+                                "additionalProperties": True,
                             },
                         },
                         "required": ["content"],
@@ -211,6 +216,11 @@ class MemoriaServer:
                             },
                             "importance": {
                                 "type": "number",
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Metadata to merge (existing keys are updated, new keys are added)",
+                                "additionalProperties": True,
                             },
                         },
                         "required": ["memory_id", "memory_type"],
@@ -639,12 +649,17 @@ class MemoriaServer:
             Result string
         """
         if name == "memoria_store":
+            # Build metadata from explicit metadata param + project shortcut
+            metadata = dict(args.get("metadata") or {})
+            if args.get("project"):
+                metadata["project"] = args["project"]
+
             memory = await self.memory_manager.store(
                 content=args["content"],
                 memory_type=args.get("memory_type", "episodic"),
                 tags=args.get("tags"),
                 importance=args.get("importance", 0.5),
-                metadata={"project": args.get("project")} if args.get("project") else None,
+                metadata=metadata if metadata else None,
             )
             return f"Stored memory: {memory.id} ({memory.memory_type.value})"
 
@@ -701,6 +716,7 @@ class MemoriaServer:
                 content=args.get("content"),
                 tags=args.get("tags"),
                 importance=args.get("importance"),
+                metadata=args.get("metadata"),
             )
             if memory:
                 return f"Updated memory: {memory.id}"

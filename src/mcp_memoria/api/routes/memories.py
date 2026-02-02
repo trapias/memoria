@@ -2,11 +2,23 @@
 Memory-related API endpoints.
 """
 
-from typing import Optional, List
-from fastapi import APIRouter, Request, HTTPException
+from typing import Optional, List, Any, Dict
+from fastapi import APIRouter, Request, HTTPException, Body
 from pydantic import BaseModel, Field
 
 router = APIRouter()
+
+# Fields that are part of the core memory model, not user metadata
+KNOWN_PAYLOAD_FIELDS = {
+    "content", "full_content", "memory_type", "created_at", "updated_at",
+    "accessed_at", "access_count", "importance", "tags", "has_relations",
+    "is_chunk", "parent_id", "chunk_index", "chunk_count",
+}
+
+
+def extract_metadata_from_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract user metadata from Qdrant payload (excludes known system fields)."""
+    return {k: v for k, v in payload.items() if k not in KNOWN_PAYLOAD_FIELDS}
 
 
 class MemoryResponse(BaseModel):
@@ -19,6 +31,7 @@ class MemoryResponse(BaseModel):
     created_at: str
     updated_at: str
     has_relations: Optional[bool] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class MemoryListResponse(BaseModel):
@@ -116,6 +129,7 @@ async def list_memories(
                     created_at=m.created_at.isoformat() if hasattr(m.created_at, 'isoformat') else str(m.created_at),
                     updated_at=m.updated_at.isoformat() if hasattr(m.updated_at, 'isoformat') else str(m.updated_at),
                     has_relations=False,  # Would need separate graph query
+                    metadata=m.metadata,
                 ))
         else:
             # Scroll through collections for list view
@@ -159,6 +173,7 @@ async def list_memories(
                                 created_at=payload.get("created_at", ""),
                                 updated_at=payload.get("updated_at", ""),
                                 has_relations=payload.get("has_relations", False),
+                                metadata=extract_metadata_from_payload(payload),
                             ))
 
                         if next_offset is None or len(points) == 0:
@@ -265,22 +280,33 @@ async def delete_memory(request: Request, memory_id: str) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class MemoryUpdateRequest(BaseModel):
+    """Request body for memory update."""
+    content: Optional[str] = None
+    tags: Optional[List[str]] = None
+    importance: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
 @router.put("/{memory_id}")
 async def update_memory(
     request: Request,
     memory_id: str,
+    body: MemoryUpdateRequest = Body(default=None),
+    # Query params for backwards compatibility
     content: Optional[str] = None,
     tags: Optional[List[str]] = None,
     importance: Optional[float] = None,
 ) -> MemoryResponse:
     """
-    Update a memory's content, tags, or importance.
+    Update a memory's content, tags, importance, or metadata.
 
     Args:
         memory_id: The memory UUID
-        content: New content (optional)
-        tags: New tags list (optional)
-        importance: New importance value (optional)
+        body: JSON body with update fields (preferred)
+        content: New content (query param, deprecated)
+        tags: New tags list (query param, deprecated)
+        importance: New importance value (query param, deprecated)
     """
     memory_manager = request.app.state.memory_manager
 
@@ -292,17 +318,36 @@ async def update_memory(
 
         m = result[0]
 
-        # Build update payload
-        updates = {}
-        if content is not None:
-            updates["content"] = content
-        if tags is not None:
-            updates["tags"] = tags
-        if importance is not None:
-            updates["importance"] = importance
+        # Build update payload (prefer body, fallback to query params)
+        updates: Dict[str, Any] = {}
+
+        # Content
+        update_content = (body.content if body else None) or content
+        if update_content is not None:
+            updates["content"] = update_content
+
+        # Tags
+        update_tags = (body.tags if body else None) or tags
+        if update_tags is not None:
+            updates["tags"] = update_tags
+
+        # Importance
+        update_importance = (body.importance if body else None) or importance
+        if update_importance is not None:
+            updates["importance"] = update_importance
+
+        # Metadata (only from body)
+        if body and body.metadata is not None:
+            updates["metadata"] = body.metadata
 
         if updates:
-            await memory_manager.update(memory_id, **updates)
+            # Get memory_type from the existing memory
+            mem_type = m.memory.memory_type if hasattr(m, 'memory') else m.memory_type
+            await memory_manager.update(
+                memory_id=memory_id,
+                memory_type=mem_type,
+                **updates,
+            )
 
         # Refetch updated memory
         result = await memory_manager.search(memory_id=memory_id, limit=1)
@@ -316,6 +361,7 @@ async def update_memory(
             importance=m.importance,
             created_at=m.created_at.isoformat() if hasattr(m.created_at, 'isoformat') else str(m.created_at),
             updated_at=m.updated_at.isoformat() if hasattr(m.updated_at, 'isoformat') else str(m.updated_at),
+            metadata=m.metadata,
         )
 
     except HTTPException:
@@ -359,6 +405,7 @@ async def search_memories(
             importance=r.memory.importance,
             created_at=r.memory.created_at.isoformat() if hasattr(r.memory.created_at, 'isoformat') else str(r.memory.created_at),
             updated_at=r.memory.updated_at.isoformat() if hasattr(r.memory.updated_at, 'isoformat') else str(r.memory.updated_at),
+            metadata=r.memory.metadata,
         )
         for r in results
     ]
@@ -388,6 +435,7 @@ async def get_memory(request: Request, memory_id: str) -> MemoryResponse:
                 importance=m.importance,
                 created_at=m.created_at.isoformat() if hasattr(m.created_at, 'isoformat') else str(m.created_at),
                 updated_at=m.updated_at.isoformat() if hasattr(m.updated_at, 'isoformat') else str(m.updated_at),
+                metadata=m.metadata,
             )
 
     raise HTTPException(status_code=404, detail="Memory not found")

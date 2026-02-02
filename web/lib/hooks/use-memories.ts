@@ -79,7 +79,12 @@ export function useUpdateMemory() {
       updates,
     }: {
       id: string;
-      updates: { content?: string; tags?: string[]; importance?: number };
+      updates: {
+        content?: string;
+        tags?: string[];
+        importance?: number;
+        metadata?: Record<string, unknown>;
+      };
     }) => api.updateMemory(id, updates),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["memories"] });

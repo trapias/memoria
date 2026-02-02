@@ -113,6 +113,7 @@ export interface Memory {
   created_at: string;
   updated_at: string;
   has_relations?: boolean;
+  metadata: Record<string, unknown>;
 }
 
 export interface MemoryListResponse {
@@ -321,13 +322,17 @@ class ApiClient {
 
   async updateMemory(
     id: string,
-    updates: { content?: string; tags?: string[]; importance?: number }
+    updates: {
+      content?: string;
+      tags?: string[];
+      importance?: number;
+      metadata?: Record<string, unknown>;
+    }
   ): Promise<Memory> {
-    const params = new URLSearchParams();
-    if (updates.content !== undefined) params.set("content", updates.content);
-    if (updates.tags !== undefined) params.set("tags", JSON.stringify(updates.tags));
-    if (updates.importance !== undefined) params.set("importance", updates.importance.toString());
-    return this.fetch<Memory>(`/api/memories/${id}?${params}`, { method: "PUT" });
+    return this.fetch<Memory>(`/api/memories/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
   }
 
   async consolidateMemories(request: ConsolidationRequest): Promise<ConsolidationPreview> {
