@@ -1,7 +1,8 @@
 "use client";
 
-import { GraphNode } from "@/lib/api";
-import { useRelations, RELATION_COLORS } from "@/lib/hooks/use-graph";
+import { useState } from "react";
+import { GraphNode, Relation } from "@/lib/api";
+import { useRelations, useDeleteRelation, RELATION_COLORS } from "@/lib/hooks/use-graph";
 import { useMemory } from "@/lib/hooks/use-memories";
 import {
   Card,
@@ -10,9 +11,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, ArrowLeft, Link2, Eye, Target, Plus } from "lucide-react";
+import { ArrowRight, ArrowLeft, Link2, Eye, Target, Plus, Trash2 } from "lucide-react";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 
 // Strip markdown syntax from labels for display as plain titles
@@ -40,6 +51,9 @@ export function GraphSidebar({
   onCenterNode,
   onAddRelation,
 }: GraphSidebarProps) {
+  const [deleteConfirm, setDeleteConfirm] = useState<Relation | null>(null);
+  const deleteMutation = useDeleteRelation();
+
   // Helper to get node label by ID (cleaned from markdown)
   const getNodeLabel = (id: string): string => {
     const node = allNodes.find((n) => n.id === id);
@@ -56,6 +70,17 @@ export function GraphSidebar({
       onCenterNode(nodeId);
     }
   };
+
+  const handleDeleteRelation = async () => {
+    if (!deleteConfirm) return;
+    await deleteMutation.mutateAsync({
+      sourceId: deleteConfirm.source_id,
+      targetId: deleteConfirm.target_id,
+      relationType: deleteConfirm.type,
+    });
+    setDeleteConfirm(null);
+  };
+
   const { data: memory } = useMemory(selectedNode?.id ?? null);
   const { data: relationsData } = useRelations(selectedNode?.id ?? null);
 
@@ -156,25 +181,38 @@ export function GraphSidebar({
               </p>
               <div className="space-y-2">
                 {outgoing.map((r) => (
-                  <button
+                  <div
                     key={r.id}
-                    onClick={() => handleRelationClick(r.target_id)}
-                    className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50 hover:bg-muted w-full text-left transition-colors"
-                    title={`Click to view: ${getNodeLabel(r.target_id)}`}
+                    className="flex items-center gap-1 group"
                   >
-                    <div
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{
-                        backgroundColor: RELATION_COLORS[r.type] ?? "#6b7280",
-                      }}
-                    />
-                    <span className="font-medium shrink-0">{r.type}</span>
-                    <span className="text-muted-foreground shrink-0">→</span>
-                    <span className="truncate text-primary hover:underline">
-                      {getNodeLabel(r.target_id)}
-                    </span>
-                    <Eye className="h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
-                  </button>
+                    <button
+                      onClick={() => handleRelationClick(r.target_id)}
+                      className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50 hover:bg-muted flex-1 text-left transition-colors min-w-0"
+                      title={`Click to view: ${getNodeLabel(r.target_id)}`}
+                    >
+                      <div
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{
+                          backgroundColor: RELATION_COLORS[r.type] ?? "#6b7280",
+                        }}
+                      />
+                      <span className="font-medium shrink-0">{r.type}</span>
+                      <span className="text-muted-foreground shrink-0">→</span>
+                      <span className="truncate text-primary hover:underline">
+                        {getNodeLabel(r.target_id)}
+                      </span>
+                      <Eye className="h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setDeleteConfirm(r)}
+                      title="Delete relation"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -189,25 +227,38 @@ export function GraphSidebar({
               </p>
               <div className="space-y-2">
                 {incoming.map((r) => (
-                  <button
+                  <div
                     key={r.id}
-                    onClick={() => handleRelationClick(r.source_id)}
-                    className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50 hover:bg-muted w-full text-left transition-colors"
-                    title={`Click to view: ${getNodeLabel(r.source_id)}`}
+                    className="flex items-center gap-1 group"
                   >
-                    <Eye className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate text-primary hover:underline">
-                      {getNodeLabel(r.source_id)}
-                    </span>
-                    <span className="text-muted-foreground shrink-0">→</span>
-                    <span className="font-medium shrink-0">{r.type}</span>
-                    <div
-                      className="w-2 h-2 rounded-full shrink-0 ml-auto"
-                      style={{
-                        backgroundColor: RELATION_COLORS[r.type] ?? "#6b7280",
-                      }}
-                    />
-                  </button>
+                    <button
+                      onClick={() => handleRelationClick(r.source_id)}
+                      className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50 hover:bg-muted flex-1 text-left transition-colors min-w-0"
+                      title={`Click to view: ${getNodeLabel(r.source_id)}`}
+                    >
+                      <Eye className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate text-primary hover:underline">
+                        {getNodeLabel(r.source_id)}
+                      </span>
+                      <span className="text-muted-foreground shrink-0">→</span>
+                      <span className="font-medium shrink-0">{r.type}</span>
+                      <div
+                        className="w-2 h-2 rounded-full shrink-0 ml-auto"
+                        style={{
+                          backgroundColor: RELATION_COLORS[r.type] ?? "#6b7280",
+                        }}
+                      />
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setDeleteConfirm(r)}
+                      title="Delete relation"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -220,6 +271,42 @@ export function GraphSidebar({
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={(open: boolean) => !open && setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Relation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirm && (
+                <>
+                  This will remove the <strong>{deleteConfirm.type}</strong> relation between:
+                  <div className="mt-2 space-y-1 text-sm">
+                    <div className="p-2 bg-muted rounded">
+                      <span className="text-muted-foreground">From:</span>{" "}
+                      {getNodeLabel(deleteConfirm.source_id)}
+                    </div>
+                    <div className="p-2 bg-muted rounded">
+                      <span className="text-muted-foreground">To:</span>{" "}
+                      {getNodeLabel(deleteConfirm.target_id)}
+                    </div>
+                  </div>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteRelation}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
