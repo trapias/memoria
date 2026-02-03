@@ -175,6 +175,7 @@ function GraphPageInner() {
               onNodeClick={handleNodeClick}
               onNodeDoubleClick={handleNodeDoubleClick}
               relationFilter={relationFilter}
+              isOverview={showOverview && !centerId}
             />
           )}
         </div>
