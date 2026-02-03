@@ -1008,8 +1008,8 @@ class MemoriaServer:
             self._db = Database(self.settings.database_url)
             await self._db.connect(run_migrations=self.settings.db_migrate)
             self.graph_manager = GraphManager(
-                db=self._db,
-                qdrant_store=self.memory_manager.vector_store,
+                database=self._db,
+                qdrant=self.memory_manager.vector_store,
             )
 
         return self.graph_manager
