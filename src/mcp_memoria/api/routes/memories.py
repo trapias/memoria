@@ -292,66 +292,56 @@ class MemoryUpdateRequest(BaseModel):
 async def update_memory(
     request: Request,
     memory_id: str,
-    body: MemoryUpdateRequest = Body(default=None),
-    # Query params for backwards compatibility
-    content: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-    importance: Optional[float] = None,
+    body: MemoryUpdateRequest,
 ) -> MemoryResponse:
     """
     Update a memory's content, tags, importance, or metadata.
 
     Args:
         memory_id: The memory UUID
-        body: JSON body with update fields (preferred)
-        content: New content (query param, deprecated)
-        tags: New tags list (query param, deprecated)
-        importance: New importance value (query param, deprecated)
+        body: JSON body with update fields
     """
+    from mcp_memoria.core.memory_types import MemoryType
+
     memory_manager = request.app.state.memory_manager
 
     try:
-        # Get current memory
-        result = await memory_manager.search(memory_id=memory_id, limit=1)
-        if not result:
+        # Find the memory by trying each memory type
+        m = None
+        found_type = None
+        for memory_type in MemoryType:
+            m = await memory_manager.get(memory_id=memory_id, memory_type=memory_type)
+            if m:
+                found_type = memory_type
+                break
+
+        if not m:
             raise HTTPException(status_code=404, detail="Memory not found")
 
-        m = result[0]
-
-        # Build update payload (prefer body, fallback to query params)
+        # Build update payload from body
         updates: Dict[str, Any] = {}
 
-        # Content
-        update_content = (body.content if body else None) or content
-        if update_content is not None:
-            updates["content"] = update_content
+        if body.content is not None:
+            updates["content"] = body.content
 
-        # Tags
-        update_tags = (body.tags if body else None) or tags
-        if update_tags is not None:
-            updates["tags"] = update_tags
+        if body.tags is not None:
+            updates["tags"] = body.tags
 
-        # Importance
-        update_importance = (body.importance if body else None) or importance
-        if update_importance is not None:
-            updates["importance"] = update_importance
+        if body.importance is not None:
+            updates["importance"] = body.importance
 
-        # Metadata (only from body)
-        if body and body.metadata is not None:
+        if body.metadata is not None:
             updates["metadata"] = body.metadata
 
         if updates:
-            # Get memory_type from the existing memory
-            mem_type = m.memory.memory_type if hasattr(m, 'memory') else m.memory_type
             await memory_manager.update(
                 memory_id=memory_id,
-                memory_type=mem_type,
+                memory_type=found_type,
                 **updates,
             )
 
         # Refetch updated memory
-        result = await memory_manager.search(memory_id=memory_id, limit=1)
-        m = result[0]
+        m = await memory_manager.get(memory_id=memory_id, memory_type=found_type)
 
         return MemoryResponse(
             id=m.id,

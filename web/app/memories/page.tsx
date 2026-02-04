@@ -108,11 +108,13 @@ export default function MemoriesPage() {
     if (!selectedMemory) return;
 
     try {
-      await updateMutation.mutateAsync({
+      const updatedMemory = await updateMutation.mutateAsync({
         id: selectedMemory.id,
         updates,
       });
-      // Refresh the memory
+      // Update the selected memory with the returned data
+      setSelectedMemory(updatedMemory);
+      // Refresh the list
       refetch();
     } catch (error) {
       console.error("Update failed:", error);
