@@ -1,3 +1,9 @@
+---
+name: memoria-guide
+description: Quick reference guide for MCP Memoria tools, memory types, and best practices
+user_invocable: true
+---
+
 # MCP Memoria - Quick Guide
 
 Persistent memory system for Claude. Uses vector embeddings for semantic search.

@@ -406,6 +406,43 @@ What do you remember about this project?
 | `memoria_work_note` | Add notes to active session |
 | `memoria_work_report` | Generate time tracking reports |
 
+### Claude Code Skill: `/memoria-guide`
+
+If you're using Claude Code, you can type `/memoria-guide` at any time to get a quick reference for all Memoria tools. This skill provides:
+
+- Complete list of all memory, knowledge graph, and time tracking tools
+- Memory types reference (episodic, semantic, procedural)
+- Importance level guidelines (0-1 scale)
+- Common usage patterns and examples
+- Tag naming conventions
+- Session workflow recommendations
+
+This is especially useful when you're not sure which tool to use or need a quick reminder of the available options without leaving your conversation.
+
+#### Installing the Skill
+
+The skill is included in the repository at `.claude/skills/memoria-guide/SKILL.md`.
+
+**Option 1: Project-level (automatic)**
+
+If you're working inside the `mcp-memoria` directory, the skill is automatically available — no installation needed.
+
+**Option 2: User-level (available in all projects)**
+
+To make the skill available globally in any project:
+
+```bash
+# Create the user skills directory if it doesn't exist
+mkdir -p ~/.claude/skills
+
+# Copy the skill directory (skills must be directories, not single files)
+cp -r .claude/skills/memoria-guide ~/.claude/skills/
+```
+
+> **Note**: After installing or updating skills, restart Claude Code for changes to take effect.
+
+After installation, type `/memoria-guide` in any Claude Code session to load the quick reference.
+
 ---
 
 ## Example Interactions
