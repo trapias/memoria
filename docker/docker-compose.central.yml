@@ -160,6 +160,8 @@ services:
       - MEMORIA_QDRANT_PORT=6333
       # PostgreSQL connection (internal Docker network)
       - MEMORIA_DATABASE_URL=postgresql://memoria:${POSTGRES_PASSWORD:-memoria_dev}@postgres:5432/memoria
+      # Run database migrations automatically on startup
+      - MEMORIA_DB_MIGRATE=true
       # Ollama on host for embeddings
       - MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434
       - MEMORIA_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}

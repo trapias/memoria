@@ -226,8 +226,8 @@ SELECT
     p.name as project_name,
     ws.category,
     COUNT(*) as session_count,
-    SUM(ws.duration_minutes) as total_minutes,
-    AVG(ws.duration_minutes)::INT as avg_minutes,
+    COALESCE(SUM(ws.duration_minutes), 0) as total_minutes,
+    COALESCE(AVG(ws.duration_minutes)::INT, 0) as avg_minutes,
     COUNT(DISTINCT DATE(ws.start_time)) as days_worked
 FROM work_sessions ws
 LEFT JOIN clients c ON ws.client_id = c.id
@@ -235,21 +235,48 @@ LEFT JOIN projects p ON ws.project_id = p.id
 WHERE ws.status = 'completed'
 GROUP BY 1, 2, 3, 4, 5, 6;
 
+-- Unique index with COALESCE for NULL handling (required for CONCURRENTLY refresh)
 CREATE UNIQUE INDEX idx_monthly_summary_pk
-ON monthly_work_summary(month, client_id, project_id, category);
+ON monthly_work_summary(month, COALESCE(client_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid), category);
+
+CREATE INDEX idx_monthly_summary_month ON monthly_work_summary(month DESC);
+CREATE INDEX idx_monthly_summary_client ON monthly_work_summary(client_id);
 
 -- Daily totals for timeline charts
 CREATE MATERIALIZED VIEW daily_work_totals AS
 SELECT
     DATE(start_time) as date,
     client_id,
-    SUM(duration_minutes) as total_minutes,
+    COALESCE(SUM(duration_minutes), 0) as total_minutes,
     COUNT(*) as session_count
 FROM work_sessions
 WHERE status = 'completed'
 GROUP BY 1, 2;
 
-CREATE UNIQUE INDEX idx_daily_totals_pk ON daily_work_totals(date, client_id);
+-- Unique index with COALESCE for NULL handling (required for CONCURRENTLY refresh)
+CREATE UNIQUE INDEX idx_daily_totals_pk ON daily_work_totals(date, COALESCE(client_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+CREATE INDEX idx_daily_totals_date ON daily_work_totals(date DESC);
+CREATE INDEX idx_daily_totals_client ON daily_work_totals(client_id);
+
+-- Client statistics aggregated view
+CREATE MATERIALIZED VIEW client_statistics AS
+SELECT
+    c.id as client_id,
+    c.name as client_name,
+    COUNT(DISTINCT ws.id) as total_sessions,
+    COALESCE(SUM(ws.duration_minutes), 0) as total_minutes,
+    COALESCE(AVG(ws.duration_minutes)::INT, 0) as avg_session_minutes,
+    COUNT(DISTINCT p.id) as project_count,
+    MIN(ws.start_time) as first_session,
+    MAX(ws.start_time) as last_session,
+    COUNT(DISTINCT DATE(ws.start_time)) as days_worked
+FROM clients c
+LEFT JOIN work_sessions ws ON ws.client_id = c.id AND ws.status = 'completed'
+LEFT JOIN projects p ON p.client_id = c.id
+GROUP BY c.id, c.name;
+
+CREATE UNIQUE INDEX idx_client_statistics_pk ON client_statistics(client_id);
 
 -- ============================================================================
 -- FUNCTIONS FOR GRAPH TRAVERSAL
@@ -351,7 +378,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Refresh materialized views
+-- Refresh work session materialized views
 CREATE OR REPLACE FUNCTION refresh_work_views()
 RETURNS void AS $$
 BEGIN
@@ -359,6 +386,52 @@ BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY daily_work_totals;
 END;
 $$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION refresh_work_views IS 'Refresh work session materialized views';
+
+-- Refresh ALL materialized views (including client_statistics)
+CREATE OR REPLACE FUNCTION refresh_all_statistics()
+RETURNS void AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY monthly_work_summary;
+    REFRESH MATERIALIZED VIEW CONCURRENTLY daily_work_totals;
+    REFRESH MATERIALIZED VIEW CONCURRENTLY client_statistics;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION refresh_all_statistics IS 'Refresh all materialized views for statistics';
+
+-- ============================================================================
+-- AUTO-REFRESH TRIGGER
+-- Automatically refreshes views when a work session is completed
+-- ============================================================================
+
+-- Trigger function that performs the refresh
+CREATE OR REPLACE FUNCTION trigger_refresh_work_views()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only refresh when status changes to 'completed'
+    IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
+        -- Use non-concurrent refresh in trigger (faster, and we're in a transaction)
+        REFRESH MATERIALIZED VIEW monthly_work_summary;
+        REFRESH MATERIALIZED VIEW daily_work_totals;
+        REFRESH MATERIALIZED VIEW client_statistics;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION trigger_refresh_work_views IS 'Trigger function to auto-refresh views on session completion';
+
+-- Create the trigger on work_sessions table
+CREATE TRIGGER work_session_completed_refresh
+    AFTER UPDATE ON work_sessions
+    FOR EACH ROW
+    WHEN (NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed')
+    EXECUTE FUNCTION trigger_refresh_work_views();
+
+COMMENT ON TRIGGER work_session_completed_refresh ON work_sessions IS
+    'Auto-refresh materialized views when a work session is completed';
 
 -- ============================================================================
 -- TRIGGERS & AUTOMATIONS
@@ -403,13 +476,37 @@ EXECUTE FUNCTION update_updated_at_column();
 -- ON CONFLICT (name) DO NOTHING;
 
 -- ============================================================================
+-- MIGRATION TRACKING
+-- Register all migrations as applied so MigrationRunner doesn't re-run them
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS _migrations (
+    version INT PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Register all migrations included in this init script
+INSERT INTO _migrations (version, name) VALUES
+    (1, '001_initial_schema'),
+    (2, '002_graph_functions'),
+    (3, '003_materialized_views'),
+    (4, '004_auto_refresh_views')
+ON CONFLICT (version) DO NOTHING;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- Created:
 --   - Enums: session_category, session_status, relation_type, relation_creator
---   - Tables: clients, projects, work_sessions, memory_relations, user_settings
---   - Materialized Views: monthly_work_summary, daily_work_totals
---   - Functions: get_neighbors, find_path, refresh_work_views, update_updated_at_column
---   - Triggers: Auto-update timestamps
---   - Indexes: Optimized for common queries
+--   - Tables: clients, projects, work_sessions, memory_relations,
+--             rejected_suggestions, user_settings, _migrations
+--   - Materialized Views: monthly_work_summary, daily_work_totals, client_statistics
+--   - Functions: get_neighbors, find_path, refresh_work_views,
+--                refresh_all_statistics, trigger_refresh_work_views,
+--                update_updated_at_column
+--   - Triggers:
+--       - Auto-update timestamps (clients, projects, sessions, settings)
+--       - Auto-refresh views on session completion (work_session_completed_refresh)
+--   - Indexes: Optimized for common queries + COALESCE for NULL handling
 -- ============================================================================
