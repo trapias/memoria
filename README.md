@@ -1,8 +1,8 @@
 # MCP Memoria
 
-**Unlimited local AI memory for Claude Code and Claude Desktop**
+**Unlimited local AI memory for any MCP-compatible client**
 
-MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, unlimited memory capabilities using **Qdrant** for vector storage and **Ollama** for local embeddings. Zero cloud dependencies, zero storage limits, 100% privacy.
+MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, unlimited memory capabilities using **Qdrant** for vector storage and **Ollama** for local embeddings. Works with Claude Code, Claude Desktop, OpenCode, Cursor, Windsurf, and any other client that supports the [Model Context Protocol](https://modelcontextprotocol.io). Zero cloud dependencies, zero storage limits, 100% privacy.
 
 ## Features
 
@@ -109,9 +109,9 @@ cd mcp-memoria
 pip install -e .
 ```
 
-#### Step 4: Configure Claude
+#### Step 4: Configure Your MCP Client
 
-Choose your Claude client:
+Choose your client. Memoria works with any MCP-compatible client — here are the most common configurations:
 
 **Claude Code** — Using CLI (recommended):
 
@@ -164,9 +164,34 @@ claude mcp add --scope user memoria \
 }
 ```
 
+**OpenCode** — Add to `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "memoria": {
+      "type": "local",
+      "command": ["python", "-m", "mcp_memoria"],
+      "enabled": true,
+      "environment": {
+        "MEMORIA_QDRANT_HOST": "localhost",
+        "MEMORIA_QDRANT_PORT": "6333",
+        "MEMORIA_DATABASE_URL": "postgresql://memoria:memoria_dev@localhost:5432/memoria",
+        "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
+      }
+    }
+  }
+}
+```
+
+**Other MCP clients** — Most clients accept either a `command` + `args` format (like Claude) or a `command` array format (like OpenCode). Refer to your client's MCP documentation. The key parameters are:
+- **Command**: `python -m mcp_memoria`
+- **Transport**: stdio (default)
+- **Environment variables**: see the [Configuration](#configuration) section
+
 #### Step 5: Verify Installation
 
-Start Claude and try:
+Start your client and try:
 
 ```
 Show me the memoria stats
@@ -245,7 +270,9 @@ cd mcp-memoria
 docker build -t mcp-memoria:latest -f docker/Dockerfile .
 ```
 
-#### Step 3: Configure Claude
+#### Step 3: Configure Your MCP Client
+
+**Claude Code / Claude Desktop**:
 
 ```json
 {
@@ -265,6 +292,42 @@ docker build -t mcp-memoria:latest -f docker/Dockerfile .
     }
   }
 }
+```
+
+**OpenCode** — Add to `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "memoria": {
+      "type": "local",
+      "command": [
+        "docker", "run", "--rm", "-i",
+        "--network", "memoria-central",
+        "-e", "MEMORIA_QDRANT_HOST=qdrant",
+        "-e", "MEMORIA_QDRANT_PORT=6333",
+        "-e", "MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria",
+        "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
+        "-e", "MEMORIA_LOG_LEVEL=WARNING",
+        "mcp-memoria:latest"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
+**Other MCP clients** — Use this Docker command directly, adapting it to your client's configuration format:
+
+```bash
+docker run --rm -i \
+  --network memoria-central \
+  -e MEMORIA_QDRANT_HOST=qdrant \
+  -e MEMORIA_QDRANT_PORT=6333 \
+  -e MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434 \
+  -e MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria \
+  -e MEMORIA_LOG_LEVEL=INFO \
+  mcp-memoria:latest
 ```
 
 > **Note**: Inside Docker, use container names (`qdrant`, `postgres`) instead of `localhost`. Use `host.docker.internal` to reach Ollama running on your host machine.
@@ -313,7 +376,7 @@ docker-compose -f docker-compose.central.yml down -v
 │                           ▲                                  │
 │                           │                                  │
 │  ┌────────────────────────┼─────────────────────────────┐   │
-│  │  Claude Code/Desktop   │                              │   │
+│  │  Any MCP Client (Claude Code, OpenCode, Cursor...)    │   │
 │  │         ┌──────────────┴───────────────┐              │   │
 │  │         │  Memoria Process (stdio)     │              │   │
 │  │         │  python -m mcp_memoria       │              │   │
@@ -406,9 +469,9 @@ What do you remember about this project?
 | `memoria_work_note` | Add notes to active session |
 | `memoria_work_report` | Generate time tracking reports |
 
-### Claude Code Skill: `/memoria-guide`
+### Skill: `/memoria-guide`
 
-If you're using Claude Code, you can type `/memoria-guide` at any time to get a quick reference for all Memoria tools. This skill provides:
+If you're using Claude Code or OpenCode, you can type `/memoria-guide` at any time to get a quick reference for all Memoria tools. This skill provides:
 
 - Complete list of all memory, knowledge graph, and time tracking tools
 - Memory types reference (episodic, semantic, procedural)
@@ -421,7 +484,7 @@ This is especially useful when you're not sure which tool to use or need a quick
 
 #### Installing the Skill
 
-The skill is included in the repository at `.claude/skills/memoria-guide/SKILL.md`.
+The skill is included in the repository at `.claude/skills/memoria-guide/SKILL.md`. Both Claude Code and OpenCode discover skills from the same `.claude/skills/` directory.
 
 **Option 1: Project-level (automatic)**
 
@@ -439,9 +502,9 @@ mkdir -p ~/.claude/skills
 cp -r .claude/skills/memoria-guide ~/.claude/skills/
 ```
 
-> **Note**: After installing or updating skills, restart Claude Code for changes to take effect.
+> **Note**: After installing or updating skills, restart Claude Code or OpenCode for changes to take effect.
 
-After installation, type `/memoria-guide` in any Claude Code session to load the quick reference.
+After installation, type `/memoria-guide` in any session to load the quick reference.
 
 ---
 
