@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Trash2, Edit2, Link2, Clock, Star } from "lucide-react";
+import { Trash2, Edit2, Link2, Clock, Star, FolderKanban } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,14 @@ export function MemoryCard({
             </Button>
           </div>
         </div>
+
+        {/* Project */}
+        {typeof memory.metadata?.project === "string" && memory.metadata.project && (
+          <div className="flex items-center gap-1.5 mb-2 text-sm text-muted-foreground">
+            <FolderKanban className="h-3.5 w-3.5 shrink-0" />
+            <span className="font-medium">{String(memory.metadata.project)}</span>
+          </div>
+        )}
 
         {/* Content */}
         <div className={cn("text-sm mb-3", !isExpanded && "line-clamp-5")}>

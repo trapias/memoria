@@ -48,9 +48,11 @@ export interface DiscoverySuggestion {
   source_id: string;
   source_preview: string;
   source_type: string | null;
+  source_project: string | null;
   target_id: string;
   target_preview: string;
   target_type: string | null;
+  target_project: string | null;
   relation_type: string;
   confidence: number;
   reason: string;

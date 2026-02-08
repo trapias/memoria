@@ -152,6 +152,7 @@ class RelationSuggestion(BaseModel):
     target_content: str = ""
     target_tags: list[str] = Field(default_factory=list)
     target_type: str | None = None
+    target_project: str | None = None
 
     # Suggested relation
     suggested_type: RelationType = RelationType.RELATED

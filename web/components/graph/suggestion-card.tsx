@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, X, ChevronDown } from "lucide-react";
+import { Check, X, ChevronDown, FolderKanban, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +24,7 @@ interface SuggestionCardProps {
   onSelect: (selected: boolean) => void;
   onAccept: (relationType: string) => void;
   onReject: () => void;
+  onViewMemory?: (memoryId: string) => void;
   disabled?: boolean;
 }
 
@@ -47,6 +48,7 @@ export function SuggestionCard({
   onSelect,
   onAccept,
   onReject,
+  onViewMemory,
   disabled = false,
 }: SuggestionCardProps) {
   const [relationType, setRelationType] = useState(suggestion.relation_type);
@@ -107,14 +109,33 @@ export function SuggestionCard({
         <div className="space-y-3 mb-3">
           {/* Source */}
           <div className="bg-muted/50 rounded-lg p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Source</p>
-              {suggestion.source_type && (
-                <Badge variant="outline" className="text-xs">
-                  {suggestion.source_type}
-                </Badge>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Source</p>
+                {suggestion.source_type && (
+                  <Badge variant="outline" className="text-xs">
+                    {suggestion.source_type}
+                  </Badge>
+                )}
+              </div>
+              {onViewMemory && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => onViewMemory(suggestion.source_id)}
+                  title="View full memory"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </Button>
               )}
             </div>
+            {suggestion.source_project && (
+              <div className="flex items-center gap-1 mb-1.5 text-xs text-muted-foreground">
+                <FolderKanban className="h-3 w-3" />
+                <span className="font-medium">{suggestion.source_project}</span>
+              </div>
+            )}
             <div className={cn(!sourceExpanded && "line-clamp-4")}>
               <MarkdownContent content={suggestion.source_preview} />
             </div>
@@ -154,14 +175,33 @@ export function SuggestionCard({
 
           {/* Target */}
           <div className="bg-muted/50 rounded-lg p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Target</p>
-              {suggestion.target_type && (
-                <Badge variant="outline" className="text-xs">
-                  {suggestion.target_type}
-                </Badge>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Target</p>
+                {suggestion.target_type && (
+                  <Badge variant="outline" className="text-xs">
+                    {suggestion.target_type}
+                  </Badge>
+                )}
+              </div>
+              {onViewMemory && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => onViewMemory(suggestion.target_id)}
+                  title="View full memory"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </Button>
               )}
             </div>
+            {suggestion.target_project && (
+              <div className="flex items-center gap-1 mb-1.5 text-xs text-muted-foreground">
+                <FolderKanban className="h-3 w-3" />
+                <span className="font-medium">{suggestion.target_project}</span>
+              </div>
+            )}
             <div className={cn(!targetExpanded && "line-clamp-4")}>
               <MarkdownContent content={suggestion.target_preview} />
             </div>

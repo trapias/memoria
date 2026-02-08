@@ -8,13 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { SuggestionCard } from "@/components/graph/suggestion-card";
+import { MemoryDetail } from "@/components/memories/memory-detail";
 import {
   useDiscoverRelationsMutation,
   useAcceptDiscoverySuggestions,
   useRejectSuggestion,
   DiscoveryParams,
 } from "@/lib/hooks/use-discovery";
-import { DiscoverySuggestion } from "@/lib/api";
+import { DiscoverySuggestion, Memory, api } from "@/lib/api";
 
 export default function DiscoverPage() {
   // Discovery settings
@@ -30,6 +31,24 @@ export default function DiscoverPage() {
     scannedCount: number;
     totalWithoutRelations: number;
   } | null>(null);
+
+  // Memory detail modal
+  const [detailMemory, setDetailMemory] = useState<Memory | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const handleViewMemory = useCallback(async (memoryId: string) => {
+    setDetailLoading(true);
+    try {
+      const memory = await api.getMemory(memoryId);
+      setDetailMemory(memory);
+      setDetailOpen(true);
+    } catch (error) {
+      console.error("Failed to load memory:", error);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
 
   // Mutations
   const discoverMutation = useDiscoverRelationsMutation();
@@ -343,6 +362,7 @@ export default function DiscoverPage() {
                 onSelect={(selected) => handleSelectSuggestion(id, selected)}
                 onAccept={(relationType) => handleAcceptSingle(suggestion, relationType)}
                 onReject={() => handleRejectSingle(suggestion)}
+                onViewMemory={handleViewMemory}
                 disabled={isLoading}
               />
             );
@@ -369,6 +389,16 @@ export default function DiscoverPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Memory Detail Modal */}
+      <MemoryDetail
+        memory={detailMemory}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        onSave={() => {}}
+        onDelete={() => {}}
+        onViewRelations={() => {}}
+      />
     </div>
   );
 }

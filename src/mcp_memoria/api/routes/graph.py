@@ -120,9 +120,11 @@ class DiscoverySuggestion(BaseModel):
     source_id: str
     source_preview: str
     source_type: Optional[str]
+    source_project: Optional[str] = None
     target_id: str
     target_preview: str
     target_type: Optional[str]
+    target_project: Optional[str] = None
     relation_type: str
     confidence: float
     reason: str

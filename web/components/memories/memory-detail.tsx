@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Edit2, Save, X, Clock, Star, Link2, Trash2, Plus, Minus } from "lucide-react";
+import { Edit2, Save, X, Clock, Star, Link2, Trash2, Plus, Minus, FolderKanban } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -54,17 +54,21 @@ export function MemoryDetail({
   const [editTags, setEditTags] = useState("");
   const [editImportance, setEditImportance] = useState(0.5);
   const [editMetadata, setEditMetadata] = useState<MetadataEntry[]>([]);
+  const [editProject, setEditProject] = useState("");
 
   const startEditing = () => {
     if (!memory) return;
     setEditContent(memory.content);
     setEditTags(memory.tags.join(", "));
     setEditImportance(memory.importance);
-    // Convert metadata object to array of entries
-    const entries = Object.entries(memory.metadata || {}).map(([key, value]) => ({
-      key,
-      value: typeof value === "string" ? value : JSON.stringify(value),
-    }));
+    setEditProject((memory.metadata?.project as string) || "");
+    // Convert metadata object to array of entries (exclude project, shown separately)
+    const entries = Object.entries(memory.metadata || {})
+      .filter(([key]) => key !== "project")
+      .map(([key, value]) => ({
+        key,
+        value: typeof value === "string" ? value : JSON.stringify(value),
+      }));
     setEditMetadata(entries.length > 0 ? entries : [{ key: "", value: "" }]);
     setIsEditing(true);
   };
@@ -92,7 +96,12 @@ export function MemoryDetail({
       }
     }
 
-    // Check if metadata changed
+    // Include project in metadata if set
+    if (editProject.trim()) {
+      metadata["project"] = editProject.trim();
+    }
+
+    // Check if metadata changed (compare with full original including project)
     const originalMetadata = memory?.metadata || {};
     const metadataChanged =
       JSON.stringify(metadata) !== JSON.stringify(originalMetadata);
@@ -158,6 +167,25 @@ export function MemoryDetail({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Project */}
+          {(isEditing || typeof memory.metadata?.project === "string") && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <FolderKanban className="h-3.5 w-3.5" />
+                Project
+              </Label>
+              {isEditing ? (
+                <Input
+                  value={editProject}
+                  onChange={(e) => setEditProject(e.target.value)}
+                  placeholder="Project name"
+                />
+              ) : (
+                <p className="text-sm font-medium">{String(memory.metadata.project)}</p>
+              )}
+            </div>
+          )}
+
           {/* Content */}
           <div className="space-y-2">
             <Label>Content</Label>

@@ -352,7 +352,8 @@ class GraphManager:
     ) -> list[dict[str, Any]]:
         """Get neighboring memories up to N hops away.
 
-        Uses PostgreSQL WITH RECURSIVE for efficient BFS traversal.
+        Uses PostgreSQL WITH RECURSIVE for efficient BFS traversal,
+        plus implicit project-based relations from Qdrant.
 
         Args:
             memory_id: Center memory ID
@@ -382,6 +383,15 @@ class GraphManager:
                 for n in db_neighbors
             ]
 
+            # Implicit project-based relations: find memories in the same project
+            if depth >= 1:
+                project_neighbors = await self._get_project_neighbors(
+                    memory_id=memory_id,
+                    exclude_ids={n["memory_id"] for n in neighbors} | {memory_id},
+                    limit=10,
+                )
+                neighbors.extend(project_neighbors)
+
             if include_content and neighbors:
                 await self._populate_neighbor_content(neighbors)
 
@@ -390,6 +400,73 @@ class GraphManager:
         except Exception as e:
             logger.error(f"Failed to get neighbors: {e}")
             raise GraphManagerError(f"Failed to get neighbors: {e}") from e
+
+    async def _get_project_neighbors(
+        self,
+        memory_id: str,
+        exclude_ids: set[str],
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Find memories in the same project as implicit neighbors.
+
+        Searches Qdrant for memories sharing the same project field,
+        returning them as depth-1 neighbors with 'same_project' relation.
+
+        Args:
+            memory_id: Source memory ID
+            exclude_ids: Memory IDs to exclude (already in graph results)
+            limit: Maximum implicit neighbors to return
+
+        Returns:
+            List of neighbor info dicts with relation='same_project'
+        """
+        try:
+            # Try each collection to find the source memory's project
+            project = None
+            for collection in ["episodic", "semantic", "procedural"]:
+                try:
+                    source_results = await self._qdrant.get(
+                        collection=collection,
+                        ids=[memory_id],
+                    )
+                    if source_results:
+                        project = source_results[0].payload.get("project")
+                        break
+                except Exception:
+                    continue
+
+            if not project:
+                return []
+
+            # Search all collections for memories with the same project
+            implicit = []
+            for collection in ["episodic", "semantic", "procedural"]:
+                try:
+                    points, _ = await self._qdrant.scroll(
+                        collection=collection,
+                        filter_conditions={"project": project},
+                        limit=limit,
+                    )
+                    for point in points:
+                        pid = str(point.id)
+                        if pid not in exclude_ids:
+                            implicit.append({
+                                "memory_id": pid,
+                                "depth": 1,
+                                "path": [memory_id, pid],
+                                "relation": "same_project",
+                                "implicit": True,
+                                "project": project,
+                            })
+                            exclude_ids.add(pid)
+                except Exception:
+                    continue
+
+            return implicit[:limit]
+
+        except Exception as e:
+            logger.debug(f"Could not fetch project neighbors: {e}")
+            return []
 
     async def find_path(
         self,
@@ -549,17 +626,37 @@ class GraphManager:
             existing_ids.update(str(r.target_id) for r in existing_relations)
             existing_ids.add(memory_id)
 
-            # Search for similar memories
             search_limit = limit + len(existing_ids) + 5  # Extra buffer
-            similar = await self._qdrant.search(
+            all_hits = []
+
+            # Phase 1: Project-scoped search (high priority)
+            source_project = source.payload.get("project")
+            if source_project:
+                project_hits = await self._qdrant.search(
+                    collection=collection,
+                    vector=source_vector,
+                    limit=search_limit,
+                    score_threshold=min_similarity,
+                    filter_conditions={"project": source_project},
+                )
+                all_hits.extend(project_hits)
+
+            # Phase 2: Global search (fills remaining slots)
+            global_hits = await self._qdrant.search(
                 collection=collection,
                 vector=source_vector,
                 limit=search_limit,
                 score_threshold=min_similarity,
             )
+            # Deduplicate: skip hits already found in project search
+            seen_ids = {hit.id for hit in all_hits}
+            for hit in global_hits:
+                if hit.id not in seen_ids:
+                    all_hits.append(hit)
+                    seen_ids.add(hit.id)
 
             suggestions = []
-            for hit in similar:
+            for hit in all_hits:
                 if hit.id in existing_ids:
                     continue
 
@@ -589,18 +686,16 @@ class GraphManager:
                         target_content=hit.payload.get("content", "")[:500],
                         target_tags=hit.payload.get("tags", []),
                         target_type=hit.payload.get("memory_type"),
+                        target_project=hit.payload.get("project"),
                         suggested_type=suggested_type,
                         confidence=confidence,
                         reason=reason,
                     )
                 )
 
-                if len(suggestions) >= limit:
-                    break
-
-            # Sort by confidence after scoring adjustments
+            # Sort by confidence and limit
             suggestions.sort(key=lambda s: s.confidence, reverse=True)
-            return suggestions
+            return suggestions[:limit]
 
         except Exception as e:
             logger.error(f"Failed to suggest relations: {e}")
@@ -787,6 +882,12 @@ class GraphManager:
         if source_type and target_type and source_type == target_type:
             confidence = min(1.0, confidence + 0.02)  # 2% boost
 
+        # Significant boost for same project
+        source_project = source_payload.get("project")
+        target_project = target_payload.get("project")
+        if source_project and target_project and source_project == target_project:
+            confidence = min(1.0, confidence + 0.15)  # 15% boost
+
         return round(confidence, 3)
 
     def _explain_suggestion(
@@ -809,18 +910,25 @@ class GraphManager:
             target_payload.get("tags", [])
         )
 
+        # Check for same project
+        source_project = source_payload.get("project")
+        target_project = target_payload.get("project")
+        same_project = source_project and target_project and source_project == target_project
+        project_note = f" (same project: {source_project})" if same_project else ""
+
         explanations = {
-            RelationType.FIXES: "Appears to be a solution to a problem",
-            RelationType.CAUSES: "Contains a decision or action leading to consequences",
-            RelationType.FOLLOWS: "Subsequent event in the same context",
-            RelationType.OPPOSES: "Contains potentially contradicting information",
-            RelationType.SUPPORTS: "Contains supporting or confirming information",
-            RelationType.SUPERSEDES: "Appears to be an updated version",
-            RelationType.DERIVES: "Derived or consolidated content",
-            RelationType.PART_OF: "Appears to be a component of a larger concept",
+            RelationType.FIXES: "Appears to be a solution to a problem" + project_note,
+            RelationType.CAUSES: "Contains a decision or action leading to consequences" + project_note,
+            RelationType.FOLLOWS: "Subsequent event in the same context" + project_note,
+            RelationType.OPPOSES: "Contains potentially contradicting information" + project_note,
+            RelationType.SUPPORTS: "Contains supporting or confirming information" + project_note,
+            RelationType.SUPERSEDES: "Appears to be an updated version" + project_note,
+            RelationType.DERIVES: "Derived or consolidated content" + project_note,
+            RelationType.PART_OF: "Appears to be a component of a larger concept" + project_note,
             RelationType.RELATED: (
                 f"Similar content"
                 + (f", shared tags: {', '.join(list(shared_tags)[:3])}" if shared_tags else "")
+                + project_note
             ),
         }
 
@@ -1308,9 +1416,11 @@ class GraphManager:
                             "source_id": memory_id,
                             "source_preview": payload.get("content", "")[:500],
                             "source_type": collection,
+                            "source_project": payload.get("project"),
                             "target_id": suggestion.target_id,
                             "target_preview": suggestion.target_content[:500],
                             "target_type": suggestion.target_type,
+                            "target_project": suggestion.target_project,
                             "relation_type": suggestion.suggested_type.value,
                             "confidence": suggestion.confidence,
                             "reason": suggestion.reason,
