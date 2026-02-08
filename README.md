@@ -442,8 +442,8 @@ What do you remember about this project?
 | `memoria_update` | Update existing memories |
 | `memoria_delete` | Delete memories |
 | `memoria_consolidate` | Merge similar memories |
-| `memoria_export` | Export memories to file |
-| `memoria_import` | Import memories from file |
+| `memoria_export` | Export memories to file (JSON/JSONL, optional vector export) |
+| `memoria_import` | Import memories from file (merge or replace mode) |
 | `memoria_stats` | View system statistics |
 | `memoria_set_context` | Set current project/file context |
 
@@ -660,6 +660,96 @@ Time tracking supports:
 
 ## Advanced Topics
 
+### Backup & Recovery
+
+Memoria includes a backup script (`scripts/backup_memoria.py`) that exports all memories with their embeddings to a JSON file, enabling full restore without re-embedding.
+
+#### Manual Backup
+
+```bash
+# Full backup (default: ~/.mcp-memoria/backups/)
+uv run scripts/backup_memoria.py
+
+# Custom output directory, keep last 5 backups
+uv run scripts/backup_memoria.py --output-dir /path/to/backups --keep 5
+
+# Connect to non-default Qdrant
+uv run scripts/backup_memoria.py --host 192.168.1.100 --port 6333
+```
+
+Backup files are named `memoria-backup-YYYYMMDD-HHMMSS.json` and include all three collections (episodic, semantic, procedural) with vectors.
+
+#### Automated Backups (macOS)
+
+Use a LaunchAgent to schedule automatic backups. Create `~/Library/LaunchAgents/com.memoria.backup.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.memoria.backup</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/uv</string>
+        <string>run</string>
+        <string>--directory</string>
+        <string>/path/to/mcp-memoria</string>
+        <string>scripts/backup_memoria.py</string>
+        <string>--keep</string>
+        <string>20</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Hour</key><integer>1</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/Users/you/.mcp-memoria/backups/backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/you/.mcp-memoria/backups/backup-error.log</string>
+</dict>
+</plist>
+```
+
+Load with: `launchctl load ~/Library/LaunchAgents/com.memoria.backup.plist`
+
+On Linux, use a cron job instead:
+
+```bash
+# Every 6 hours
+0 1,7,13,19 * * * cd /path/to/mcp-memoria && uv run scripts/backup_memoria.py --keep 20
+```
+
+#### Restore from Backup
+
+> **Note**: Full restore requires a backup created with `include_vectors: true` (the default for `backup_memoria.py`). Backups created via `memoria_export` without `include_vectors` cannot be restored directly — they would need re-embedding.
+
+Use the `memoria_import` MCP tool, or restore directly via the Qdrant API:
+
+```bash
+# Via MCP (in Claude)
+Import memories from ~/.mcp-memoria/backups/memoria-backup-20260207-130120.json
+
+# Via Python script
+python -c "
+from qdrant_client import QdrantClient
+import json
+
+client = QdrantClient(host='localhost', port=6333)
+backup = json.load(open('path/to/backup.json'))
+
+for coll, items in backup['collections'].items():
+    points = [{'id': p['id'], 'vector': p['vector'], 'payload': p['payload']} for p in items]
+    # Upsert in batches of 100
+    for i in range(0, len(points), 100):
+        client.upsert(collection_name=coll, points=points[i:i+100])
+"
+```
+
 ### Multi-Node Sync
 
 If you run Qdrant on multiple machines (e.g., a Mac and a Linux server), you can keep them synchronized using the included sync script.
@@ -668,7 +758,7 @@ The sync script (`scripts/sync_qdrant.py`) performs **incremental bidirectional 
 
 - **New memories**: Copied to the other node
 - **Updated memories**: Newer timestamp wins
-- **Deleted memories**: Propagated to the other node
+- **Deleted memories**: Propagated to the other node (with safety limits)
 
 ```bash
 # Run sync
@@ -679,6 +769,9 @@ python scripts/sync_qdrant.py --dry-run
 
 # Verbose output
 python scripts/sync_qdrant.py -v
+
+# Reset sync state (treat all points as new, no deletions)
+python scripts/sync_qdrant.py --reset-state
 ```
 
 Edit the script to set your node addresses:
@@ -686,6 +779,41 @@ Edit the script to set your node addresses:
 ```python
 LOCAL_URL = "http://localhost:6333"
 REMOTE_URL = "http://your-server.local:6333"
+```
+
+#### Safety Features
+
+The sync script includes multiple layers of protection against accidental data loss:
+
+1. **Pre-sync backup**: A full snapshot of local data is saved to `~/.mcp-memoria/backups/pre-sync/` before every sync run (last 5 kept)
+2. **Fetch error detection**: If a node fails to respond, the sync aborts instead of treating it as "all data deleted"
+3. **Empty-vs-full asymmetry check**: If one side has 0 points and the other has many, the sync skips that collection (likely a connectivity issue, not a real deletion)
+4. **Deletion cap**: Maximum 20 deletions per sync run; anything above aborts with a warning
+
+#### Automated Sync (macOS)
+
+Create `~/Library/LaunchAgents/com.memoria.qdrant-sync.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.memoria.qdrant-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/mcp-memoria/.venv/bin/python</string>
+        <string>/path/to/mcp-memoria/scripts/sync_qdrant.py</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/qdrant-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/qdrant-sync.log</string>
+</dict>
+</plist>
 ```
 
 ### HTTP/SSE Transport
@@ -732,6 +860,8 @@ Chunking is transparent — callers always see complete memories, never individu
 
 All settings via environment variables with `MEMORIA_` prefix:
 
+**Core:**
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MEMORIA_QDRANT_HOST` | - | Qdrant server host |
@@ -739,19 +869,30 @@ All settings via environment variables with `MEMORIA_` prefix:
 | `MEMORIA_QDRANT_PATH` | `~/.mcp-memoria/qdrant` | Local Qdrant storage path (if no host) |
 | `MEMORIA_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `MEMORIA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model |
+| `MEMORIA_EMBEDDING_DIMENSIONS` | `768` | Embedding vector dimensions |
 | `MEMORIA_CACHE_ENABLED` | `true` | Enable embedding cache |
+| `MEMORIA_CACHE_PATH` | `~/.mcp-memoria/cache` | Path for embedding cache |
 | `MEMORIA_CHUNK_SIZE` | `500` | Max characters per chunk |
 | `MEMORIA_CHUNK_OVERLAP` | `50` | Overlap between consecutive chunks |
 | `MEMORIA_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `MEMORIA_LOG_FILE` | - | Path to log file (in addition to stderr) |
 | `MEMORIA_HTTP_PORT` | - | HTTP port (enables HTTP mode) |
 | `MEMORIA_HTTP_HOST` | `0.0.0.0` | HTTP host to bind to |
-| `MEMORIA_DATABASE_URL` | - | PostgreSQL URL for Knowledge Graph |
-| `MEMORIA_PG_HOST` | - | PostgreSQL host (alternative to DATABASE_URL) |
-| `MEMORIA_PG_PORT` | `5432` | PostgreSQL port |
-| `MEMORIA_PG_USER` | `memoria` | PostgreSQL username |
-| `MEMORIA_PG_PASSWORD` | - | PostgreSQL password |
-| `MEMORIA_PG_DATABASE` | `memoria` | PostgreSQL database name |
+| `MEMORIA_DATABASE_URL` | - | PostgreSQL URL for Knowledge Graph and Time Tracking |
+
+**Advanced tuning:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MEMORIA_DEFAULT_MEMORY_TYPE` | `episodic` | Default memory type for storage |
+| `MEMORIA_DEFAULT_RECALL_LIMIT` | `5` | Default number of results for recall |
+| `MEMORIA_MIN_SIMILARITY_SCORE` | `0.5` | Minimum similarity score for recall |
+| `MEMORIA_CONSOLIDATION_THRESHOLD` | `0.9` | Similarity threshold for memory consolidation |
+| `MEMORIA_FORGETTING_DAYS` | `30` | Days before forgetting unused memories |
+| `MEMORIA_MIN_IMPORTANCE_THRESHOLD` | `0.3` | Minimum importance to retain during forgetting |
+| `MEMORIA_DB_MIGRATE` | `false` | Run database migrations on startup |
+| `MEMORIA_DB_POOL_MIN` | `2` | Minimum database connection pool size |
+| `MEMORIA_DB_POOL_MAX` | `10` | Maximum database connection pool size |
 
 ---
 

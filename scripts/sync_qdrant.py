@@ -28,6 +28,8 @@ REMOTE_IP = "192.168.1.51"              # Fallback IP if hostname doesn't resolv
 
 COLLECTIONS = ["procedural", "semantic", "episodic"]
 SYNC_STATE_FILE = Path.home() / ".mcp-memoria" / "sync_state.json"
+PRE_SYNC_BACKUP_DIR = Path.home() / ".mcp-memoria" / "backups" / "pre-sync"
+PRE_SYNC_KEEP = 5  # keep last N pre-sync snapshots
 BATCH_SIZE = 100
 
 
@@ -98,10 +100,14 @@ def save_sync_state(state: dict):
     SYNC_STATE_FILE.write_text(json.dumps(state, indent=2))
 
 
-def get_all_points(url: str, collection: str) -> dict[str, dict]:
-    """Get all points from a collection as {uuid: {payload, vector}}."""
+def get_all_points(url: str, collection: str) -> dict[str, dict] | None:
+    """Get all points from a collection as {uuid: {payload, vector}}.
+
+    Returns None on error (failed to fetch), empty dict if collection is truly empty.
+    """
     points = {}
     offset = None
+    first_request = True
 
     while True:
         data = {"limit": BATCH_SIZE, "with_payload": True, "with_vector": True}
@@ -110,7 +116,13 @@ def get_all_points(url: str, collection: str) -> dict[str, dict]:
 
         result = http_request(f"{url}/collections/{collection}/points/scroll", "POST", data)
         if not result or result.get("status") != "ok":
+            if first_request:
+                # First request failed - cannot distinguish empty from error
+                log(f"  Failed to fetch points from {url}/{collection}", "ERROR")
+                return None
             break
+
+        first_request = False
 
         for point in result["result"].get("points", []):
             point_id = str(point["id"])
@@ -124,6 +136,50 @@ def get_all_points(url: str, collection: str) -> dict[str, dict]:
             break
 
     return points
+
+
+def pre_sync_backup(local_url: str) -> bool:
+    """Take a lightweight JSON snapshot of local collections before syncing.
+
+    Saves to PRE_SYNC_BACKUP_DIR with rotation. Returns True on success.
+    """
+    PRE_SYNC_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = PRE_SYNC_BACKUP_DIR / f"pre-sync-{timestamp}.json"
+
+    backup_data: dict[str, Any] = {
+        "version": "1.0",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "include_vectors": True,
+        "collections": {},
+    }
+
+    total = 0
+    for collection in COLLECTIONS:
+        points = get_all_points(local_url, collection)
+        if points is None:
+            log(f"Pre-sync backup: failed to read {collection}, aborting backup", "ERROR")
+            return False
+
+        records = []
+        for point_id, data in points.items():
+            records.append({
+                "id": point_id,
+                "payload": data["payload"],
+                "vector": data["vector"],
+            })
+        backup_data["collections"][collection] = records
+        total += len(records)
+
+    backup_path.write_text(json.dumps(backup_data, default=str))
+    log(f"Pre-sync backup: {total} points saved to {backup_path.name}", "OK")
+
+    # Rotate old pre-sync backups
+    old_backups = sorted(PRE_SYNC_BACKUP_DIR.glob("pre-sync-*.json"), reverse=True)
+    for old in old_backups[PRE_SYNC_KEEP:]:
+        old.unlink()
+
+    return True
 
 
 def parse_timestamp(value: Any) -> datetime | None:
@@ -215,7 +271,30 @@ def sync_collection(
     log(f"  Fetching points from Remote...", verbose_only=True)
     remote_points = get_all_points(remote_url, collection)
 
+    # Safety: abort if either side failed to fetch (None = error, {} = truly empty)
+    if local_points is None or remote_points is None:
+        failed = "Local" if local_points is None else "Remote"
+        log(f"  SKIPPING {collection}: failed to fetch from {failed}", "ERROR")
+        stats["errors"] += 1
+        return stats
+
     log(f"  Local: {len(local_points)} points, Remote: {len(remote_points)} points")
+
+    # Safety: block if one side is empty but the other has many points
+    # This almost certainly means a fetch error, not a legitimate mass deletion
+    MIN_POINTS_FOR_SAFETY = 10  # only apply safety check above this threshold
+
+    if max(len(local_points), len(remote_points)) >= MIN_POINTS_FOR_SAFETY:
+        if len(local_points) == 0 and len(remote_points) > 0:
+            log(f"  SKIPPING {collection}: Local returned 0 points but Remote has {len(remote_points)} "
+                f"- likely a fetch error, not a deletion. Use --reset-state for a fresh sync.", "WARN")
+            stats["errors"] += 1
+            return stats
+        if len(remote_points) == 0 and len(local_points) > 0:
+            log(f"  SKIPPING {collection}: Remote returned 0 points but Local has {len(local_points)} "
+                f"- likely a fetch error, not a deletion. Use --reset-state for a fresh sync.", "WARN")
+            stats["errors"] += 1
+            return stats
 
     all_uuids = set(local_points.keys()) | set(remote_points.keys())
 
@@ -283,6 +362,15 @@ def sync_collection(
                 delete_from_remote.append(uuid)
                 stats["deletions_remote"] += 1
                 log(f"  Deleted on Local: {uuid[:8]}... remove from Remote", verbose_only=True)
+
+    # Safety: cap maximum deletions per sync run
+    MAX_DELETIONS_PER_SYNC = 20
+    total_deletions = len(delete_from_local) + len(delete_from_remote)
+    if total_deletions > MAX_DELETIONS_PER_SYNC:
+        log(f"  ABORTING {collection}: {total_deletions} deletions exceed safety limit of {MAX_DELETIONS_PER_SYNC}. "
+            f"Review manually or use --reset-state.", "WARN")
+        stats["errors"] += 1
+        return stats
 
     # Summary
     total_changes = (stats['local_to_remote'] + stats['remote_to_local'] +
@@ -353,6 +441,12 @@ def main():
     if not remote_url:
         log("Remote not reachable", "ERROR")
         sys.exit(1)
+
+    # Pre-sync backup of local data
+    if not args.dry_run:
+        if not pre_sync_backup(LOCAL_URL):
+            log("Pre-sync backup failed, aborting sync", "ERROR")
+            sys.exit(1)
 
     # Load sync state
     if args.reset_state:
