@@ -20,7 +20,7 @@ RUN npm ci
 
 # Copy source and build
 COPY web/ ./
-RUN npm run build
+RUN mkdir -p public && npm run build
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 2: Production image with Python + Node
