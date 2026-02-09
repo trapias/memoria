@@ -1,0 +1,111 @@
+# MCP Memoria - Backend Services
+#
+# Provides infrastructure for MCP Memoria: Qdrant, PostgreSQL, and Web UI.
+# Download this file and run:
+#
+#   docker network create memoria-network 2>/dev/null; true
+#   docker compose -f docker-compose.server.yml up -d
+#
+# Then configure your MCP client to use: ghcr.io/trapias/memoria:latest
+# See README for full setup instructions.
+#
+# Services:
+#   - Qdrant (vector database) on :6333
+#   - PostgreSQL (knowledge graph + time tracking) on :5433
+#   - Web UI on :3000, REST API on :8765
+#
+# Prerequisites:
+#   - Docker and Docker Compose
+#   - Ollama running on localhost:11434 with nomic-embed-text model
+#
+# Update:
+#   docker compose -f docker-compose.server.yml pull
+#   docker compose -f docker-compose.server.yml up -d
+
+name: memoria
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: memoria-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__SERVICE__HTTP_PORT=6333
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - memoria-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: memoria-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: memoria
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memoria_dev}
+      POSTGRES_DB: memoria
+    volumes:
+      - memoria-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memoria -d memoria"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - memoria-network
+
+  memoria-ui:
+    image: ghcr.io/trapias/memoria-ui:latest
+    container_name: memoria-ui
+    ports:
+      - "3000:3000"
+      - "8765:8765"
+    environment:
+      - MEMORIA_QDRANT_HOST=qdrant
+      - MEMORIA_QDRANT_PORT=6333
+      - MEMORIA_DATABASE_URL=postgresql://memoria:${POSTGRES_PASSWORD:-memoria_dev}@postgres:5432/memoria
+      - MEMORIA_DB_MIGRATE=true
+      - MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434
+      - MEMORIA_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - API_PORT=8765
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - NEXT_PUBLIC_API_URL=http://localhost:8765
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - memoria-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  qdrant_data:
+    driver: local
+  memoria-postgres-data:
+    driver: local
+
+networks:
+  memoria-network:
+    name: memoria-network

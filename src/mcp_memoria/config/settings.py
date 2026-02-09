@@ -94,6 +94,12 @@ class Settings(BaseSettings):
         description="Overlap between chunks",
     )
 
+    # Update check
+    skip_update_check: bool = Field(
+        default=False,
+        description="Skip checking for updates at startup",
+    )
+
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
         default="INFO",

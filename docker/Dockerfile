@@ -36,7 +36,8 @@ RUN mkdir -p /data/qdrant /data/cache && \
 ENV MEMORIA_QDRANT_PATH=/data/qdrant \
     MEMORIA_CACHE_PATH=/data/cache \
     MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434 \
-    MEMORIA_LOG_LEVEL=INFO
+    MEMORIA_LOG_LEVEL=INFO \
+    MEMORIA_RUNNING_IN_DOCKER=true
 
 # Switch to non-root user
 USER memoria

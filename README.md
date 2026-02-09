@@ -28,56 +28,33 @@ MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, u
 
 ---
 
-## Setup
+## Quick Start (Docker)
 
-MCP Memoria requires **two components** running before you can use it:
-
-1. **Backend Services** (Qdrant + PostgreSQL) — must be started FIRST
-2. **Claude Configuration** — connects Claude to Memoria
-
-> ⚠️ **Important**: Start the backend services BEFORE configuring Claude. Claude will fail to connect if the services aren't running.
+The fastest way to get started. **No git clone, no Python install** — download one file, configure your client, done.
 
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- [Ollama](https://ollama.com/download) installed and running with the `nomic-embed-text` model
-- Python 3.11+ (for local Memoria process)
+- [Ollama](https://ollama.com/download) running with the `nomic-embed-text` model
 
 ```bash
-# Install Ollama (if not already installed)
-# macOS
-brew install ollama
-
-# Linux
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Start Ollama and pull the embedding model
-ollama serve  # Run in background or separate terminal
+# Install and start Ollama (if not already running)
+# macOS: brew install ollama
+# Linux: curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
 ollama pull nomic-embed-text
-
-# Verify Ollama is running
-curl http://localhost:11434/api/tags
 ```
 
----
-
-### Option A: Full Docker Setup (Recommended)
-
-**Best for**: Most users. Provides all features including Knowledge Graph, Time Tracking, and Web UI.
-
-This setup runs Qdrant, PostgreSQL, and Web UI in Docker containers. Each Claude session spawns its own local Memoria process, connecting to these shared services.
-
-#### Step 1: Clone and Start Backend Services
+### Step 1: Download and start backend services
 
 ```bash
-git clone https://github.com/yourusername/mcp-memoria.git
-cd mcp-memoria/docker
+mkdir -p memoria && cd memoria
 
-# Start all services (Qdrant + PostgreSQL + Web UI)
-./start.sh central
+# Download the server compose file
+curl -O https://raw.githubusercontent.com/trapias/memoria/main/docker/docker-compose.server.yml
 
-# Or manually:
-docker-compose -f docker-compose.central.yml up -d
+# Start Qdrant + PostgreSQL + Web UI
+docker compose -f docker-compose.server.yml up -d
 ```
 
 This starts:
@@ -85,46 +62,146 @@ This starts:
 | Service | Port | Description |
 |---------|------|-------------|
 | Qdrant | 6333 | Vector database for semantic search |
-| PostgreSQL | 5432 | Knowledge Graph + Time Tracking data |
+| PostgreSQL | 5433 | Knowledge Graph + Time Tracking data |
 | Web UI | 3000 | Browser-based memory explorer |
 | REST API | 8765 | API for custom integrations |
 
-#### Step 2: Verify Services Are Running
+### Step 2: Configure your MCP client
+
+Each MCP session spawns its own Memoria container via `docker run`. This ensures **isolated WorkingMemory per session** — no risk of context confusion between concurrent sessions.
+
+**Claude Code** (CLI):
 
 ```bash
-# Check Qdrant
-curl http://localhost:6333/health
-
-# Check PostgreSQL
-docker exec memoria-postgres pg_isready -U memoria
-
-# Open Web UI (optional)
-open http://localhost:3000
+claude mcp add --scope user memoria -- \
+  docker run --rm -i \
+  --network memoria-network \
+  -e MEMORIA_QDRANT_HOST=qdrant \
+  -e MEMORIA_QDRANT_PORT=6333 \
+  -e MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria \
+  -e MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434 \
+  -e MEMORIA_LOG_LEVEL=WARNING \
+  ghcr.io/trapias/memoria:latest
 ```
 
-#### Step 3: Install Memoria Python Package
+**Claude Code / Claude Desktop** (JSON config):
+
+```json
+{
+  "mcpServers": {
+    "memoria": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--network", "memoria-network",
+        "-e", "MEMORIA_QDRANT_HOST=qdrant",
+        "-e", "MEMORIA_QDRANT_PORT=6333",
+        "-e", "MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria",
+        "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
+        "-e", "MEMORIA_LOG_LEVEL=WARNING",
+        "ghcr.io/trapias/memoria:latest"
+      ]
+    }
+  }
+}
+```
+
+Config file locations:
+- Claude Code: `~/.claude.json`
+- Claude Desktop macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Claude Desktop Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+**OpenCode** (`opencode.json`):
+
+```json
+{
+  "mcp": {
+    "memoria": {
+      "type": "local",
+      "command": [
+        "docker", "run", "--rm", "-i",
+        "--network", "memoria-network",
+        "-e", "MEMORIA_QDRANT_HOST=qdrant",
+        "-e", "MEMORIA_QDRANT_PORT=6333",
+        "-e", "MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria",
+        "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
+        "-e", "MEMORIA_LOG_LEVEL=WARNING",
+        "ghcr.io/trapias/memoria:latest"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
+**Other MCP clients** — Use the Docker command above, adapting it to your client's configuration format. The key parameters:
+- **Command**: `docker run --rm -i --network memoria-network ... ghcr.io/trapias/memoria:latest`
+- **Transport**: stdio (each session gets its own container)
+- **Network**: `memoria-network` (to reach Qdrant and PostgreSQL)
+
+> **Why `docker run` per session?** Memoria maintains in-memory WorkingMemory (current project context, session history, memory cache) that is **per-process**. A shared persistent MCP container would mix context between concurrent Claude sessions. The per-session approach ensures complete isolation.
+
+### Step 3: Verify
+
+Start your client and try:
+
+```
+Show me the memoria stats
+```
+
+If you see statistics, Memoria is working. Open http://localhost:3000 for the Web UI.
+
+### Update
 
 ```bash
-cd mcp-memoria
+# Update backend services
+docker compose -f docker-compose.server.yml pull
+docker compose -f docker-compose.server.yml up -d
+
+# The MCP client image updates automatically — docker run pulls :latest on next session
+docker pull ghcr.io/trapias/memoria:latest
+```
+
+To pin a specific version, replace `:latest` with a version tag (e.g., `:1.3.0`) in your MCP client config.
+
+---
+
+## Alternative Setups
+
+### Option A: Local Python + Docker backends
+
+**Best for**: Developers who want to modify Memoria or avoid Docker for the MCP process.
+
+Backend services (Qdrant + PostgreSQL + Web UI) run in Docker, the MCP server runs as a local Python process.
+
+```bash
+git clone https://github.com/trapias/memoria.git
+cd memoria
+
+# Start backend services
+cd docker
+docker network create memoria-network 2>/dev/null || true
+docker compose -f docker-compose.central.yml up -d
+
+# Install Memoria
+cd ..
 pip install -e .
 ```
 
-#### Step 4: Configure Your MCP Client
+Configure your MCP client with the local Python command:
 
-Choose your client. Memoria works with any MCP-compatible client — here are the most common configurations:
-
-**Claude Code** — Using CLI (recommended):
+**Claude Code** (CLI):
 
 ```bash
 claude mcp add --scope user memoria \
   -e MEMORIA_QDRANT_HOST=localhost \
   -e MEMORIA_QDRANT_PORT=6333 \
-  -e MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@localhost:5432/memoria \
+  -e MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@localhost:5433/memoria \
   -e MEMORIA_OLLAMA_HOST=http://localhost:11434 \
   -- python -m mcp_memoria
 ```
 
-**Claude Code** — Manual config (`~/.claude.json`):
+**Claude Code / Claude Desktop** (JSON):
 
 ```json
 {
@@ -135,7 +212,7 @@ claude mcp add --scope user memoria \
       "env": {
         "MEMORIA_QDRANT_HOST": "localhost",
         "MEMORIA_QDRANT_PORT": "6333",
-        "MEMORIA_DATABASE_URL": "postgresql://memoria:memoria_dev@localhost:5432/memoria",
+        "MEMORIA_DATABASE_URL": "postgresql://memoria:memoria_dev@localhost:5433/memoria",
         "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
       }
     }
@@ -143,28 +220,7 @@ claude mcp add --scope user memoria \
 }
 ```
 
-**Claude Desktop** — Config file location:
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "python",
-      "args": ["-m", "mcp_memoria"],
-      "env": {
-        "MEMORIA_QDRANT_HOST": "localhost",
-        "MEMORIA_QDRANT_PORT": "6333",
-        "MEMORIA_DATABASE_URL": "postgresql://memoria:memoria_dev@localhost:5432/memoria",
-        "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
-      }
-    }
-  }
-}
-```
-
-**OpenCode** — Add to `opencode.json`:
+**OpenCode** (`opencode.json`):
 
 ```json
 {
@@ -176,7 +232,7 @@ claude mcp add --scope user memoria \
       "environment": {
         "MEMORIA_QDRANT_HOST": "localhost",
         "MEMORIA_QDRANT_PORT": "6333",
-        "MEMORIA_DATABASE_URL": "postgresql://memoria:memoria_dev@localhost:5432/memoria",
+        "MEMORIA_DATABASE_URL": "postgresql://memoria:memoria_dev@localhost:5433/memoria",
         "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
       }
     }
@@ -184,95 +240,22 @@ claude mcp add --scope user memoria \
 }
 ```
 
-**Other MCP clients** — Most clients accept either a `command` + `args` format (like Claude) or a `command` array format (like OpenCode). Refer to your client's MCP documentation. The key parameters are:
-- **Command**: `python -m mcp_memoria`
-- **Transport**: stdio (default)
-- **Environment variables**: see the [Configuration](#configuration) section
+Update: `git pull && pip install -e .` or `mcp-memoria --update`
 
-#### Step 5: Verify Installation
+### Option B: Minimal (Qdrant only)
 
-Start your client and try:
-
-```
-Show me the memoria stats
-```
-
-If you see statistics, Memoria is working correctly.
-
----
-
-### Option B: Minimal Setup (Qdrant Only)
-
-**Best for**: Quick testing or if you don't need Knowledge Graph/Time Tracking features.
-
-This setup only runs Qdrant. You won't have access to:
-- Knowledge Graph tools (`memoria_link`, `memoria_related`, etc.)
-- Time Tracking tools (`memoria_work_start`, `memoria_work_report`, etc.)
-- Web UI
-
-#### Step 1: Start Qdrant
+**Best for**: Quick testing. No Knowledge Graph, Time Tracking, or Web UI.
 
 ```bash
-cd mcp-memoria/docker
-docker-compose -f docker-compose.qdrant-only.yml up -d
+# Download just the Qdrant compose file
+mkdir -p memoria && cd memoria
+curl -O https://raw.githubusercontent.com/trapias/memoria/main/docker/docker-compose.qdrant-only.yml
+
+# Start Qdrant
+docker compose -f docker-compose.qdrant-only.yml up -d
 ```
 
-#### Step 2: Verify Qdrant Is Running
-
-```bash
-curl http://localhost:6333/health
-```
-
-#### Step 3: Install and Configure
-
-```bash
-cd mcp-memoria
-pip install -e .
-```
-
-Configure Claude (same as Option A, but without `MEMORIA_DATABASE_URL`):
-
-```json
-{
-  "mcpServers": {
-    "memoria": {
-      "command": "python",
-      "args": ["-m", "mcp_memoria"],
-      "env": {
-        "MEMORIA_QDRANT_HOST": "localhost",
-        "MEMORIA_QDRANT_PORT": "6333",
-        "MEMORIA_OLLAMA_HOST": "http://localhost:11434"
-      }
-    }
-  }
-}
-```
-
----
-
-### Option C: Fully Dockerized Client
-
-**Best for**: Users who prefer running Memoria entirely in Docker, or environments without Python.
-
-In this setup, Claude spawns an ephemeral Memoria container for each session. The container connects to the backend services via Docker networking.
-
-#### Step 1: Start Backend Services
-
-```bash
-cd mcp-memoria/docker
-docker-compose -f docker-compose.central.yml up -d
-```
-
-#### Step 2: Build the Memoria Image
-
-```bash
-cd mcp-memoria
-docker build -t mcp-memoria:latest -f docker/Dockerfile .
-```
-
-#### Step 3: Configure Your MCP Client
-
-**Claude Code / Claude Desktop**:
+Configure your MCP client (Docker or Python, without `MEMORIA_DATABASE_URL`):
 
 ```json
 {
@@ -281,56 +264,17 @@ docker build -t mcp-memoria:latest -f docker/Dockerfile .
       "command": "docker",
       "args": [
         "run", "-i", "--rm",
-        "--network", "memoria-central",
+        "--network", "memoria-network",
         "-e", "MEMORIA_QDRANT_HOST=qdrant",
         "-e", "MEMORIA_QDRANT_PORT=6333",
-        "-e", "MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria",
         "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
         "-e", "MEMORIA_LOG_LEVEL=WARNING",
-        "mcp-memoria:latest"
+        "ghcr.io/trapias/memoria:latest"
       ]
     }
   }
 }
 ```
-
-**OpenCode** — Add to `opencode.json`:
-
-```json
-{
-  "mcp": {
-    "memoria": {
-      "type": "local",
-      "command": [
-        "docker", "run", "--rm", "-i",
-        "--network", "memoria-central",
-        "-e", "MEMORIA_QDRANT_HOST=qdrant",
-        "-e", "MEMORIA_QDRANT_PORT=6333",
-        "-e", "MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria",
-        "-e", "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434",
-        "-e", "MEMORIA_LOG_LEVEL=WARNING",
-        "mcp-memoria:latest"
-      ],
-      "enabled": true
-    }
-  }
-}
-```
-
-**Other MCP clients** — Use this Docker command directly, adapting it to your client's configuration format:
-
-```bash
-docker run --rm -i \
-  --network memoria-central \
-  -e MEMORIA_QDRANT_HOST=qdrant \
-  -e MEMORIA_QDRANT_PORT=6333 \
-  -e MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434 \
-  -e MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria \
-  -e MEMORIA_LOG_LEVEL=INFO \
-  mcp-memoria:latest
-```
-
-> **Note**: Inside Docker, use container names (`qdrant`, `postgres`) instead of `localhost`. Use `host.docker.internal` to reach Ollama running on your host machine.
 
 ---
 
@@ -338,16 +282,16 @@ docker run --rm -i \
 
 ```bash
 # Check status
-docker-compose -f docker-compose.central.yml ps
+docker compose -f docker-compose.server.yml ps
 
 # View logs
-docker-compose -f docker-compose.central.yml logs -f
+docker compose -f docker-compose.server.yml logs -f
 
 # Stop services (data is preserved)
-docker-compose -f docker-compose.central.yml down
+docker compose -f docker-compose.server.yml down
 
-# Stop and DELETE all data (⚠️ irreversible!)
-docker-compose -f docker-compose.central.yml down -v
+# Stop and DELETE all data (irreversible!)
+docker compose -f docker-compose.server.yml down -v
 ```
 
 ---
@@ -365,11 +309,11 @@ docker-compose -f docker-compose.central.yml down -v
 │  └──────────────────────────────────────────────────────┘   │
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │  Docker Services (docker-compose.central.yml)         │   │
+│  │  Docker Services (docker-compose.server.yml)             │   │
 │  │                                                        │   │
 │  │  ┌─────────────┐ ┌─────────────┐ ┌────────────────┐   │   │
 │  │  │   Qdrant    │ │ PostgreSQL  │ │    Web UI      │   │   │
-│  │  │   :6333     │ │   :5432     │ │    :3000       │   │   │
+│  │  │   :6333     │ │   :5433     │ │    :3000       │   │   │
 │  │  │  (vectors)  │ │ (relations) │ │   (browser)    │   │   │
 │  │  └─────────────┘ └─────────────┘ └────────────────┘   │   │
 │  └──────────────────────────────────────────────────────┘   │
@@ -378,9 +322,9 @@ docker-compose -f docker-compose.central.yml down -v
 │  ┌────────────────────────┼─────────────────────────────┐   │
 │  │  Any MCP Client (Claude Code, OpenCode, Cursor...)    │   │
 │  │         ┌──────────────┴───────────────┐              │   │
-│  │         │  Memoria Process (stdio)     │              │   │
-│  │         │  python -m mcp_memoria       │              │   │
-│  │         │  (spawned per session)       │              │   │
+│  │         │  Memoria Container (stdio)   │              │   │
+│  │         │  ghcr.io/trapias/memoria     │              │   │
+│  │         │  (one per session, isolated) │              │   │
 │  │         └──────────────────────────────┘              │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
@@ -390,7 +334,7 @@ docker-compose -f docker-compose.central.yml down -v
 
 ## Web UI
 
-The Web UI provides a browser-based interface to explore and manage your memories. Access it at **http://localhost:3000** after starting the central Docker services.
+The Web UI provides a browser-based interface to explore and manage your memories. Access it at **http://localhost:3000** after starting the Docker services.
 
 ### Features
 
@@ -406,8 +350,6 @@ The Web UI provides a browser-based interface to explore and manage your memorie
   - Sort by date, importance, or relevance
 - **Relation Management**: Create, view, and delete relationships between memories
 - **AI Suggestions**: Get recommended relations based on content similarity
-
-> **Note**: The Web UI is included in the Full Docker Setup (Option A). It's not available with the Minimal Setup.
 
 ---
 
@@ -658,6 +600,19 @@ Time tracking supports:
 
 ---
 
+## CLI Options
+
+```bash
+mcp-memoria                    # Start MCP server (stdio)
+mcp-memoria --version          # Show version
+mcp-memoria --update           # Update to latest version (native install only)
+mcp-memoria --skip-update-check  # Start without checking for updates
+```
+
+Environment variable: `MEMORIA_SKIP_UPDATE_CHECK=true` disables the startup update check.
+
+---
+
 ## Advanced Topics
 
 ### Backup & Recovery
@@ -818,7 +773,7 @@ Create `~/Library/LaunchAgents/com.memoria.qdrant-sync.plist`:
 
 ### HTTP/SSE Transport
 
-> ⚠️ **Warning**: HTTP mode is for testing/development only. It shares WorkingMemory across all connected clients, which can cause context confusion.
+> **Warning**: HTTP mode is for testing/development only. It shares WorkingMemory across all connected clients, which can cause context confusion.
 
 For scenarios where you can't spawn processes (web apps, remote access):
 
@@ -879,6 +834,7 @@ All settings via environment variables with `MEMORIA_` prefix:
 | `MEMORIA_HTTP_PORT` | - | HTTP port (enables HTTP mode) |
 | `MEMORIA_HTTP_HOST` | `0.0.0.0` | HTTP host to bind to |
 | `MEMORIA_DATABASE_URL` | - | PostgreSQL URL for Knowledge Graph and Time Tracking |
+| `MEMORIA_SKIP_UPDATE_CHECK` | `false` | Disable startup update check |
 
 **Advanced tuning:**
 
@@ -953,7 +909,7 @@ For skills and procedures:
 
 #### "Connection refused" errors
 
-- Ensure services are running: `docker-compose -f docker-compose.central.yml ps`
+- Ensure services are running: `docker compose -f docker-compose.server.yml ps`
 - For Docker setups, verify the network: `docker network ls | grep memoria`
 - Check firewall settings if running on remote servers
 
@@ -992,10 +948,9 @@ Or in Claude config:
 To completely reset Memoria and start fresh:
 
 ```bash
-# Stop services and delete all data (⚠️ irreversible!)
-cd docker
-docker-compose -f docker-compose.central.yml down -v
-docker-compose -f docker-compose.central.yml up -d
+# Stop services and delete all data (irreversible!)
+docker compose -f docker-compose.server.yml down -v
+docker compose -f docker-compose.server.yml up -d
 ```
 
 ---
@@ -1003,7 +958,9 @@ docker-compose -f docker-compose.central.yml up -d
 ## Development
 
 ```bash
-# Install with dev dependencies
+# Clone and install with dev dependencies
+git clone https://github.com/trapias/memoria.git
+cd memoria
 pip install -e ".[dev]"
 
 # Run tests
@@ -1014,6 +971,10 @@ mypy src/mcp_memoria
 
 # Linting
 ruff check src/mcp_memoria
+
+# Build Docker images locally
+docker build -t mcp-memoria -f docker/Dockerfile .
+docker build -t memoria-ui -f docker/Dockerfile.ui .
 ```
 
 ---

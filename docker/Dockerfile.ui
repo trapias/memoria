@@ -57,6 +57,9 @@ COPY docker/run-migrations.sh ./
 COPY docker/start-ui.sh ./
 RUN chmod +x start-ui.sh run-migrations.sh
 
+# Docker detection
+ENV MEMORIA_RUNNING_IN_DOCKER=true
+
 # Expose ports
 EXPOSE 3000 8765
 
