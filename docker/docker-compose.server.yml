@@ -69,6 +69,7 @@ services:
 
   memoria-ui:
     image: ghcr.io/trapias/memoria-ui:latest
+    pull_policy: always
     container_name: memoria-ui
     ports:
       - "3000:3000"
