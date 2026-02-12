@@ -134,6 +134,45 @@ Config file locations:
 }
 ```
 
+**Codex** (CLI):
+
+```bash
+codex mcp add memoria --env MEMORIA_QDRANT_HOST=qdrant --env MEMORIA_QDRANT_PORT=6333 --env "MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria" --env "MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434" --env MEMORIA_LOG_LEVEL=WARNING -- docker run --rm -i --network memoria-network -e MEMORIA_DATABASE_URL -e MEMORIA_QDRANT_HOST -e MEMORIA_QDRANT_PORT -e MEMORIA_OLLAMA_HOST -e MEMORIA_LOG_LEVEL ghcr.io/trapias/memoria:latest
+```
+
+**Codex** (desktop app for macOS — `~/.codex/config.toml`):
+
+```toml
+[mcp_servers.memoria]
+command = "docker"
+args = [
+  "run",
+  "--rm",
+  "-i",
+  "--network",
+  "memoria-network",
+  "-e",
+  "MEMORIA_DATABASE_URL",
+  "-e",
+  "MEMORIA_QDRANT_HOST",
+  "-e",
+  "MEMORIA_QDRANT_PORT",
+  "-e",
+  "MEMORIA_OLLAMA_HOST",
+  "-e",
+  "MEMORIA_LOG_LEVEL",
+  "ghcr.io/trapias/memoria:latest",
+]
+enabled = true
+
+[mcp_servers.memoria.env]
+MEMORIA_DATABASE_URL = "postgresql://memoria:memoria_dev@postgres:5432/memoria"
+MEMORIA_LOG_LEVEL = "WARNING"
+MEMORIA_OLLAMA_HOST = "http://host.docker.internal:11434"
+MEMORIA_QDRANT_HOST = "qdrant"
+MEMORIA_QDRANT_PORT = "6333"
+```
+
 **Other MCP clients** — Use the Docker command above, adapting it to your client's configuration format. The key parameters:
 - **Command**: `docker run --rm -i --network memoria-network ... ghcr.io/trapias/memoria:latest`
 - **Transport**: stdio (each session gets its own container)
@@ -238,6 +277,27 @@ claude mcp add --scope user memoria \
     }
   }
 }
+```
+
+**Codex** (CLI):
+
+```bash
+codex mcp add memoria --env MEMORIA_QDRANT_HOST=localhost --env MEMORIA_QDRANT_PORT=6333 --env "MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@localhost:5433/memoria" --env "MEMORIA_OLLAMA_HOST=http://localhost:11434" -- python -m mcp_memoria
+```
+
+**Codex** (desktop app for macOS — `~/.codex/config.toml`):
+
+```toml
+[mcp_servers.memoria]
+command = "python"
+args = ["-m", "mcp_memoria"]
+enabled = true
+
+[mcp_servers.memoria.env]
+MEMORIA_QDRANT_HOST = "localhost"
+MEMORIA_QDRANT_PORT = "6333"
+MEMORIA_DATABASE_URL = "postgresql://memoria:memoria_dev@localhost:5433/memoria"
+MEMORIA_OLLAMA_HOST = "http://localhost:11434"
 ```
 
 Update: `git pull && pip install -e .` or `mcp-memoria --update`
