@@ -1,6 +1,6 @@
 [project]
 name = "mcp-memoria"
-version = "1.4.4"
+version = "1.4.5"
 description = "MCP server for unlimited local AI memory using Qdrant and Ollama"
 readme = "README.md"
 license = { text = "Apache-2.0" }
