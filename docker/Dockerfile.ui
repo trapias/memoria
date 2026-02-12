@@ -60,12 +60,15 @@ RUN chmod +x start-ui.sh run-migrations.sh
 # Docker detection
 ENV MEMORIA_RUNNING_IN_DOCKER=true
 
+# Default UI port (overridable via environment)
+ENV UI_PORT=3000
+
 # Expose ports
-EXPOSE 3000 8765
+EXPOSE ${UI_PORT} 8765
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:3000 && curl -f http://localhost:8765/health || exit 1
+    CMD curl -f http://localhost:${UI_PORT:-3000} && curl -f http://localhost:8765/health || exit 1
 
 # Start both services
 CMD ["./start-ui.sh"]

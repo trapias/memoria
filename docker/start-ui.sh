@@ -70,9 +70,10 @@ fi
 echo "✓ REST API started (PID: $API_PID)"
 
 # Start Next.js UI
-echo "Starting Web UI on port 3000..."
+UI_PORT="${UI_PORT:-3000}"
+echo "Starting Web UI on port ${UI_PORT}..."
 cd /app/web
-NODE_ENV=production npm start &
+PORT=$UI_PORT NODE_ENV=production npm start &
 UI_PID=$!
 
 sleep 2
@@ -84,7 +85,7 @@ echo "✓ Web UI started (PID: $UI_PID)"
 
 echo ""
 echo "=== Services started ==="
-echo "  Web UI:   http://localhost:3000"
+echo "  Web UI:   http://localhost:${UI_PORT}"
 echo "  REST API: http://localhost:${API_PORT:-8765}"
 echo ""
 
