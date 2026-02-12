@@ -168,3 +168,25 @@ jobs:
             --title "Release $TAG_NAME" \
             --generate-notes \
             --latest
+
+  cleanup-runs:
+    needs: [check-version]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete old workflow runs (keep last 3)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh run list --repo "$REPO" \
+            --workflow=docker-publish.yml \
+            --limit=100 \
+            --json databaseId \
+            --jq '.[3:][].databaseId' | while read -r run_id; do
+            echo "Deleting run $run_id"
+            gh run delete "$run_id" --repo "$REPO" || true
+          done
