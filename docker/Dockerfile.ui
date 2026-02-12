@@ -8,9 +8,9 @@
 # Run:   docker run -p 3000:3000 -p 8765:8765 memoria-ui
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Stage 1: Build Next.js frontend
+# Stage 1: Build Next.js frontend (always on native amd64 — output is JS/HTML)
 # ═══════════════════════════════════════════════════════════════════════════════
-FROM node:20-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
 
 WORKDIR /app/web
 
@@ -23,7 +23,7 @@ COPY web/ ./
 RUN mkdir -p public && npm run build
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Stage 2: Production image with Python + Node
+# Stage 2: Production image with Python + Node (multi-arch)
 # ═══════════════════════════════════════════════════════════════════════════════
 FROM python:3.12-slim
 
