@@ -260,7 +260,7 @@ async def delete_memory(request: Request, memory_id: str) -> dict:
     memory_manager = request.app.state.memory_manager
 
     try:
-        success = await memory_manager.delete(memory_id)
+        success = await memory_manager.delete(memory_ids=[memory_id])
         if success:
             # Also delete graph relations if available
             graph_manager = getattr(request.app.state, "graph_manager", None)

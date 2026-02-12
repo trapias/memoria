@@ -380,7 +380,10 @@ export function MemoryDetail({
               </Button>
               <Button
                 variant="destructive"
-                onClick={onDelete}
+                onClick={() => {
+                  onOpenChange(false);
+                  onDelete();
+                }}
                 className="flex-1 sm:flex-none"
               >
                 <Trash2 className="h-4 w-4 mr-2" />

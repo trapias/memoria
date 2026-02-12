@@ -66,7 +66,7 @@ class DeleteMemoryTool:
 
         Args:
             memory_ids: Specific IDs to delete
-            memory_type: Memory type (required for ID deletion)
+            memory_type: Memory type (optional, searches all if omitted)
             filter_tags: Delete by tag filter
 
         Returns:

@@ -626,16 +626,20 @@ class MemoryManager:
             Number of memories deleted
         """
         if memory_ids:
-            if not memory_type:
-                raise ValueError("memory_type required when deleting by ID")
-
             if isinstance(memory_type, str):
                 memory_type = MemoryType(memory_type)
 
+            collections = (
+                [memory_type.value]
+                if memory_type
+                else [m.value for m in MemoryType]
+            )
+
             total_deleted = 0
             for mid in memory_ids:
-                deleted = await self._delete_memory_points(mid, memory_type.value)
-                total_deleted += max(deleted, 1)  # count at least 1 per requested ID
+                for collection in collections:
+                    deleted = await self._delete_memory_points(mid, collection)
+                    total_deleted += deleted
                 self.working_memory.invalidate_cache(mid)
 
             return total_deleted
