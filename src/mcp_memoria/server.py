@@ -680,7 +680,7 @@ class MemoriaServer:
                 output.append(
                     f"{i}. [{r.memory.memory_type.value}] (score: {r.score:.2f})\n"
                     f"   ID: {r.memory.id}\n"
-                    f"   Content: {r.memory.content[:200]}{'...' if len(r.memory.content) > 200 else ''}\n"
+                    f"   Content: {r.memory.content}\n"
                     f"   Tags: {', '.join(r.memory.tags) if r.memory.tags else 'none'}\n"
                 )
             return "\n".join(output)
@@ -705,7 +705,7 @@ class MemoriaServer:
                 output.append(
                     f"{i}. [{r.memory.memory_type.value}] importance: {r.memory.importance:.2f}\n"
                     f"   ID: {r.memory.id}\n"
-                    f"   Content: {r.memory.content[:150]}...\n"
+                    f"   Content: {r.memory.content}\n"
                 )
             return "\n".join(output)
 
