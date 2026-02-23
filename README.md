@@ -63,7 +63,7 @@ This starts:
 |---------|------|-------------|
 | Qdrant | 6333 | Vector database for semantic search |
 | PostgreSQL | 5433 | Knowledge Graph + Time Tracking data |
-| Web UI | 3000 | Browser-based memory explorer |
+| Web UI | 3000 | Browser-based memory explorer and data management |
 | REST API | 8765 | API for custom integrations |
 
 ### Step 2: Configure your MCP client
@@ -410,6 +410,11 @@ The Web UI provides a browser-based interface to explore and manage your memorie
   - Sort by date, importance, or relevance
 - **Relation Management**: Create, view, and delete relationships between memories
 - **AI Suggestions**: Get recommended relations based on content similarity
+- **Data Management**: Browse and manage PostgreSQL data (requires PostgreSQL)
+  - **Sessions**: View, create, edit, and delete work sessions with filters (date range, category, client, project, status, text search), summary cards (total hours, session count, average duration), and CSV export
+  - **Clients**: Manage clients with aggregate stats (project count, session count, total hours, last activity) and JSON metadata
+  - **Projects**: Manage projects linked to clients, with GitHub repo links and automatic client propagation to unlinked sessions
+  - **Relations**: Browse memory relations with enriched previews from Qdrant, filter by type/creator/memory, and clean up orphaned relations
 
 ---
 
