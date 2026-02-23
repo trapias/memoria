@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..config.settings import Settings
 from ..core.memory_manager import MemoryManager
 from ..db import ASYNCPG_AVAILABLE
-from .routes import memories, graph, stats, backup
+from .routes import memories, graph, stats, backup, data
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
     app.include_router(stats.router, prefix="/api", tags=["stats"])
     app.include_router(backup.router, prefix="/api/backup", tags=["backup"])
+    app.include_router(data.router, prefix="/api/data", tags=["data"])
 
     @app.get("/health")
     async def health_check():

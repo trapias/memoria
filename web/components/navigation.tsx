@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Brain, GitBranch, Home, Settings, Sparkles, Database, HardDrive } from "lucide-react";
+import { Brain, GitBranch, Home, Settings, Sparkles, Database, HardDrive, Table2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -10,6 +10,7 @@ const navItems = [
   { href: "/memories", label: "Memories", icon: Database },
   { href: "/graph", label: "Graph", icon: GitBranch },
   { href: "/graph/discover", label: "Discover", icon: Sparkles },
+  { href: "/data", label: "Data", icon: Table2 },
   { href: "/backup", label: "Backup", icon: HardDrive },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

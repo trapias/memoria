@@ -1,5 +1,5 @@
 """API route modules."""
 
-from . import memories, graph, stats
+from . import memories, graph, stats, data
 
-__all__ = ["memories", "graph", "stats"]
+__all__ = ["memories", "graph", "stats", "data"]

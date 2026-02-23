@@ -72,6 +72,123 @@ export interface BulkRelationsResult {
   errors: number;
 }
 
+// Data Management types
+export interface WorkSessionResponse {
+  id: string;
+  description: string;
+  category: string;
+  client_id: string | null;
+  client_name: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  issue_number: number | null;
+  pr_number: number | null;
+  branch: string | null;
+  start_time: string;
+  end_time: string | null;
+  duration_minutes: number | null;
+  total_pause_minutes: number;
+  pauses: Array<{ start: string; end?: string; reason?: string }>;
+  status: string;
+  notes: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionListResponse {
+  items: WorkSessionResponse[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+export interface SessionSummary {
+  total_minutes: number;
+  session_count: number;
+  avg_minutes: number;
+  client_count: number;
+}
+
+export interface SessionCreateBody {
+  description: string;
+  category?: string;
+  client_id?: string;
+  project_id?: string;
+  start_time: string;
+  end_time: string;
+  issue_number?: number;
+  pr_number?: number;
+  branch?: string;
+  notes?: string[];
+}
+
+export interface SessionUpdateBody {
+  description?: string;
+  category?: string;
+  client_id?: string;
+  project_id?: string;
+  start_time?: string;
+  end_time?: string;
+  issue_number?: number;
+  pr_number?: number;
+  branch?: string;
+  notes?: string[];
+}
+
+export interface DataClient {
+  id: string;
+  name: string;
+  metadata: Record<string, unknown>;
+  project_count: number;
+  session_count: number;
+  total_minutes: number;
+  last_activity: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DataProject {
+  id: string;
+  name: string;
+  client_id: string | null;
+  client_name: string | null;
+  repo: string | null;
+  metadata: Record<string, unknown>;
+  session_count: number;
+  total_minutes: number;
+  last_activity: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryPreviewData {
+  id: string;
+  content_preview: string;
+  memory_type: string | null;
+  tags: string[];
+  importance: number;
+}
+
+export interface DataRelation {
+  id: string;
+  source_id: string;
+  target_id: string;
+  relation_type: string;
+  weight: number;
+  created_by: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  source: MemoryPreviewData | null;
+  target: MemoryPreviewData | null;
+}
+
+export interface DataRelationListResponse {
+  items: DataRelation[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
 export interface BackupStats {
   memories_count: number;
   relations_count: number;
@@ -392,6 +509,148 @@ class ApiClient {
         relation_type: relationType,
       }),
     });
+  }
+
+  // Data Management endpoints
+  async listSessions(params: {
+    page?: number;
+    page_size?: number;
+    date_from?: string;
+    date_to?: string;
+    client_id?: string;
+    project_id?: string;
+    status?: string;
+    category?: string;
+    search?: string;
+    sort_by?: string;
+    sort_dir?: string;
+  } = {}): Promise<SessionListResponse> {
+    const urlParams = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") urlParams.set(k, String(v));
+    });
+    return this.fetch<SessionListResponse>(`/api/data/sessions?${urlParams}`);
+  }
+
+  async getSessionsSummary(params: {
+    date_from?: string;
+    date_to?: string;
+    client_id?: string;
+  } = {}): Promise<SessionSummary> {
+    const urlParams = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") urlParams.set(k, String(v));
+    });
+    return this.fetch<SessionSummary>(`/api/data/sessions/summary?${urlParams}`);
+  }
+
+  async createSession(body: SessionCreateBody): Promise<WorkSessionResponse> {
+    return this.fetch("/api/data/sessions", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateSession(id: string, body: SessionUpdateBody): Promise<WorkSessionResponse> {
+    return this.fetch(`/api/data/sessions/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteSession(id: string): Promise<{ status: string }> {
+    return this.fetch(`/api/data/sessions/${id}`, { method: "DELETE" });
+  }
+
+  async exportSessionsCsv(params: {
+    date_from?: string;
+    date_to?: string;
+    client_id?: string;
+  } = {}): Promise<Blob> {
+    const urlParams = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") urlParams.set(k, String(v));
+    });
+    const response = await fetch(`${API_BASE}/api/data/sessions/export?${urlParams}`);
+    if (!response.ok) throw new Error(`Export failed: ${response.status}`);
+    return response.blob();
+  }
+
+  async listClients(): Promise<DataClient[]> {
+    return this.fetch<DataClient[]>("/api/data/clients");
+  }
+
+  async createClient(body: { name: string; metadata?: Record<string, unknown> }): Promise<DataClient> {
+    return this.fetch("/api/data/clients", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateClient(id: string, body: { name?: string; metadata?: Record<string, unknown> }): Promise<DataClient> {
+    return this.fetch(`/api/data/clients/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteClient(id: string): Promise<{ status: string }> {
+    return this.fetch(`/api/data/clients/${id}`, { method: "DELETE" });
+  }
+
+  async listProjects(clientId?: string): Promise<DataProject[]> {
+    const params = clientId ? `?client_id=${clientId}` : "";
+    return this.fetch<DataProject[]>(`/api/data/projects${params}`);
+  }
+
+  async createProject(body: {
+    name: string;
+    client_id?: string;
+    repo?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<DataProject> {
+    return this.fetch("/api/data/projects", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateProject(id: string, body: {
+    name?: string;
+    client_id?: string;
+    repo?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<DataProject> {
+    return this.fetch(`/api/data/projects/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteProject(id: string): Promise<{ status: string }> {
+    return this.fetch(`/api/data/projects/${id}`, { method: "DELETE" });
+  }
+
+  async listDataRelations(params: {
+    relation_type?: string;
+    created_by?: string;
+    memory_id?: string;
+    page?: number;
+    page_size?: number;
+  } = {}): Promise<DataRelationListResponse> {
+    const urlParams = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") urlParams.set(k, String(v));
+    });
+    return this.fetch<DataRelationListResponse>(`/api/data/relations?${urlParams}`);
+  }
+
+  async deleteOrphanedRelations(): Promise<{ status: string; deleted: number }> {
+    return this.fetch("/api/data/relations/orphaned", { method: "DELETE" });
+  }
+
+  async deleteDataRelation(id: string): Promise<{ status: string }> {
+    return this.fetch(`/api/data/relations/${id}`, { method: "DELETE" });
   }
 
   // Backup endpoints
