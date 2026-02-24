@@ -592,7 +592,7 @@ class MemoriaServer:
                                 "type": "string",
                                 "enum": ["today", "week", "month", "year", "all"],
                                 "default": "month",
-                                "description": "Time period for report",
+                                "description": "Time period: today, week (last 7 days), month (current), year (current), all",
                             },
                             "start_date": {
                                 "type": "string",
@@ -986,8 +986,8 @@ class MemoriaServer:
                 for item in result["breakdown"]:
                     output.append(f"    {item['group']}: {item['hours']}h ({item['percentage']}%)")
             if result.get("recent_sessions"):
-                output.append("\n  Recent sessions:")
-                for s in result["recent_sessions"][:5]:
+                output.append(f"\n  Recent sessions ({len(result['recent_sessions'])} total):")
+                for s in result["recent_sessions"][:15]:
                     output.append(f"    [{s['date']}] {s['description'][:40]}... ({s['duration_minutes']}m)")
             return "\n".join(output)
 

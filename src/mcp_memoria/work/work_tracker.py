@@ -334,7 +334,7 @@ class WorkTracker:
             if period == "today":
                 start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             elif period == "week":
-                start = now - timedelta(days=now.weekday())
+                start = now - timedelta(days=7)
                 start = start.replace(hour=0, minute=0, second=0, microsecond=0)
             elif period == "month":
                 start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -419,9 +419,9 @@ class WorkTracker:
 
             breakdown.sort(key=lambda x: x["hours"], reverse=True)
 
-        # Recent sessions
+        # Recent sessions (all, limited in server output)
         recent = []
-        for s in sessions[:10]:
+        for s in sessions:
             client_name = None
             project_name = None
             if s.client_id:
