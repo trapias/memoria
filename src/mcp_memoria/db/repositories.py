@@ -283,6 +283,24 @@ class WorkSessionRepository:
         )
         return self._row_to_session(row) if row else None
 
+    async def get_all_active(self) -> list[WorkSession]:
+        """Get all sessions with status active or paused, oldest first."""
+        rows = await self._db.fetch(
+            """
+            SELECT * FROM work_sessions
+            WHERE status IN ('active', 'paused')
+            ORDER BY start_time ASC
+            """
+        )
+        return [self._row_to_session(row) for row in rows]
+
+    async def count_active(self) -> int:
+        """Count sessions currently active or paused."""
+        row = await self._db.fetchrow(
+            "SELECT COUNT(*) AS n FROM work_sessions WHERE status IN ('active', 'paused')"
+        )
+        return row["n"] if row else 0
+
     async def list(
         self,
         client_id: UUID | None = None,

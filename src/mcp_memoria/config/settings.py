@@ -138,6 +138,16 @@ class Settings(BaseSettings):
         description="Maximum database connection pool size",
     )
 
+    # Work tracking settings
+    work_max_parallel_sessions: int = Field(
+        default=3,
+        description="Maximum number of parallel active/paused work sessions (0 = unlimited)",
+    )
+    work_session_warning_hours: float = Field(
+        default=8.0,
+        description="Hours after which an open session triggers a forgotten-session warning",
+    )
+
     def ensure_directories(self) -> None:
         """Create necessary directories if they don't exist."""
         self.qdrant_path.mkdir(parents=True, exist_ok=True)

@@ -480,7 +480,7 @@ class MemoriaServer:
                 # Work tracking tools
                 Tool(
                     name="memoria_work_start",
-                    description="Start tracking a work session. Use to log time spent on tasks, issues, or projects. Requires PostgreSQL.",
+                    description="Start tracking a work session. Supports multiple parallel sessions (configurable limit). Requires PostgreSQL.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -520,13 +520,13 @@ class MemoriaServer:
                 ),
                 Tool(
                     name="memoria_work_stop",
-                    description="Stop the active work session. Returns duration and session summary. Requires PostgreSQL.",
+                    description="Stop a work session. If multiple sessions are active, specify session_id. Requires PostgreSQL.",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "session_id": {
                                 "type": "string",
-                                "description": "Session ID to stop (defaults to active session)",
+                                "description": "Session ID to stop (required if multiple sessions are active)",
                             },
                             "notes": {
                                 "type": "string",
@@ -537,7 +537,7 @@ class MemoriaServer:
                 ),
                 Tool(
                     name="memoria_work_status",
-                    description="Check if a work session is active and get its details. Requires PostgreSQL.",
+                    description="Check all active/paused work sessions and get their details. Shows warnings for forgotten sessions. Requires PostgreSQL.",
                     inputSchema={
                         "type": "object",
                         "properties": {},
@@ -545,10 +545,14 @@ class MemoriaServer:
                 ),
                 Tool(
                     name="memoria_work_pause",
-                    description="Pause the active work session (e.g., for lunch break). Requires PostgreSQL.",
+                    description="Pause a work session (e.g., for lunch break). If multiple sessions are active, specify session_id. Requires PostgreSQL.",
                     inputSchema={
                         "type": "object",
                         "properties": {
+                            "session_id": {
+                                "type": "string",
+                                "description": "Session ID to pause (required if multiple sessions are active)",
+                            },
                             "reason": {
                                 "type": "string",
                                 "description": "Reason for pausing (optional)",
@@ -558,15 +562,20 @@ class MemoriaServer:
                 ),
                 Tool(
                     name="memoria_work_resume",
-                    description="Resume a paused work session. Requires PostgreSQL.",
+                    description="Resume a paused work session. If multiple sessions are paused, specify session_id. Requires PostgreSQL.",
                     inputSchema={
                         "type": "object",
-                        "properties": {},
+                        "properties": {
+                            "session_id": {
+                                "type": "string",
+                                "description": "Session ID to resume (required if multiple sessions are paused)",
+                            },
+                        },
                     },
                 ),
                 Tool(
                     name="memoria_work_note",
-                    description="Add a note to the active work session. Requires PostgreSQL.",
+                    description="Add a note to a work session. If multiple sessions are active, specify session_id. Requires PostgreSQL.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -576,7 +585,7 @@ class MemoriaServer:
                             },
                             "session_id": {
                                 "type": "string",
-                                "description": "Session ID (defaults to active session)",
+                                "description": "Session ID (required if multiple sessions are active)",
                             },
                         },
                         "required": ["note"],
@@ -887,13 +896,28 @@ class MemoriaServer:
                 branch=args.get("branch"),
             )
             if "error" in result:
-                return f"Error: {result['error']}"
-            return (
-                f"Started work session: {result['session_id']}\n"
-                f"  Description: {result['description']}\n"
-                f"  Category: {result['category']}\n"
-                f"  Started at: {result['started_at']}"
-            )
+                lines = [f"Error: {result['error']}"]
+                if result.get("active_sessions"):
+                    lines.append("Current sessions:")
+                    for s in result["active_sessions"]:
+                        lines.append(
+                            f"  - {s['session_id'][:8]}... \"{s['description'][:50]}\""
+                            f" ({s['elapsed_minutes']}m, {s['status']})"
+                        )
+                return "\n".join(lines)
+            lines = [
+                f"Started work session: {result['session_id']}",
+                f"  Description: {result['description']}",
+                f"  Category: {result['category']}",
+                f"  Started at: {result['started_at']}",
+            ]
+            if result.get("parallel_sessions", 1) > 1:
+                lines.append(f"  Parallel sessions active: {result['parallel_sessions']}")
+            if result.get("warnings"):
+                lines.append("  Warnings:")
+                for w in result["warnings"]:
+                    lines.append(f"    [!] {w}")
+            return "\n".join(lines)
 
         elif name == "memoria_work_stop":
             wt = await self._get_work_tracker()
@@ -904,7 +928,7 @@ class MemoriaServer:
                 notes=args.get("notes"),
             )
             if "error" in result:
-                return f"Error: {result['error']}"
+                return self._format_disambiguation_error(result)
             return (
                 f"Stopped work session: {result['session_id']}\n"
                 f"  Description: {result['description']}\n"
@@ -918,38 +942,59 @@ class MemoriaServer:
             if not wt:
                 return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
             result = await wt.status()
-            if not result.get("active") and not result.get("paused"):
+            sessions = result.get("sessions", [])
+            if not sessions:
                 return "No active work session."
-            status = "paused" if result.get("paused") else "active"
-            output = [
-                f"Work session ({status}): {result['session_id']}",
-                f"  Description: {result['description']}",
-                f"  Elapsed: {result.get('elapsed_formatted', f'{result['elapsed_minutes']}m')}",
-            ]
-            if result.get("client"):
-                output.append(f"  Client: {result['client']}")
-            if result.get("project"):
-                output.append(f"  Project: {result['project']}")
-            if result.get("category"):
-                output.append(f"  Category: {result['category']}")
+            elif len(sessions) == 1:
+                s = sessions[0]
+                status_str = "paused" if s["status"] == "paused" else "active"
+                output = [
+                    f"Work session ({status_str}): {s['session_id']}",
+                    f"  Description: {s['description']}",
+                    f"  Elapsed: {s['elapsed_formatted']}",
+                ]
+                if s.get("client"):
+                    output.append(f"  Client: {s['client']}")
+                if s.get("project"):
+                    output.append(f"  Project: {s['project']}")
+                if s.get("category"):
+                    output.append(f"  Category: {s['category']}")
+            else:
+                output = [f"Active work sessions ({len(sessions)}):"]
+                for i, s in enumerate(sessions, 1):
+                    output.append(
+                        f"  {i}. [{s['status']}] {s['session_id'][:8]}..."
+                        f"  \"{s['description'][:50]}\""
+                        f"  elapsed: {s['elapsed_formatted']}"
+                    )
+                    ctx_parts = [p for p in [s.get("client"), s.get("project")] if p]
+                    if ctx_parts:
+                        output.append(f"     context: {' / '.join(ctx_parts)}")
+            if result.get("warnings"):
+                output.append("\nWarnings:")
+                for w in result["warnings"]:
+                    output.append(f"  [!] {w}")
             return "\n".join(output)
 
         elif name == "memoria_work_pause":
             wt = await self._get_work_tracker()
             if not wt:
                 return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
-            result = await wt.pause(reason=args.get("reason"))
+            result = await wt.pause(
+                session_id=args.get("session_id"),
+                reason=args.get("reason"),
+            )
             if "error" in result:
-                return f"Error: {result['error']}"
+                return self._format_disambiguation_error(result)
             return f"Paused work session: {result['session_id']}\n  Elapsed: {result['elapsed_minutes']}m"
 
         elif name == "memoria_work_resume":
             wt = await self._get_work_tracker()
             if not wt:
                 return "Error: Work tracking requires PostgreSQL. Set MEMORIA_DATABASE_URL."
-            result = await wt.resume()
+            result = await wt.resume(session_id=args.get("session_id"))
             if "error" in result:
-                return f"Error: {result['error']}"
+                return self._format_disambiguation_error(result)
             return f"Resumed work session: {result['session_id']}\n  Total pause time: {result['total_pause_minutes']}m"
 
         elif name == "memoria_work_note":
@@ -961,7 +1006,7 @@ class MemoriaServer:
                 session_id=args.get("session_id"),
             )
             if "error" in result:
-                return f"Error: {result['error']}"
+                return self._format_disambiguation_error(result)
             return f"Added note to session {result['session_id']} ({result['total_notes']} notes total)"
 
         elif name == "memoria_work_report":
@@ -1014,6 +1059,18 @@ class MemoriaServer:
 
         return self.graph_manager
 
+    def _format_disambiguation_error(self, result: dict) -> str:
+        """Format a disambiguation error with session list for the user."""
+        if result.get("requires_session_id") and result.get("active_sessions"):
+            lines = [f"Error: {result['error']}", "Available sessions:"]
+            for s in result["active_sessions"]:
+                lines.append(
+                    f"  - session_id: \"{s['session_id']}\""
+                    f"  \"{s['description'][:50]}\" ({s['elapsed_minutes']}m, {s['status']})"
+                )
+            return "\n".join(lines)
+        return f"Error: {result['error']}"
+
     async def _get_work_tracker(self) -> "WorkTracker | None":
         """Get or initialize the WorkTracker.
 
@@ -1030,7 +1087,7 @@ class MemoriaServer:
 
         if self._work_tracker is None:
             from mcp_memoria.work import WorkTracker
-            self._work_tracker = WorkTracker(self._db)
+            self._work_tracker = WorkTracker(self._db, settings=self.settings)
 
         return self._work_tracker
 

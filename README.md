@@ -21,7 +21,7 @@ MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, u
   - AI-powered relation suggestions
   - Path finding between memories
 - **Web UI**: Browser-based Knowledge Graph explorer and memory browser
-- **Time Tracking**: Track work sessions with clients, projects, and categories
+- **Time Tracking**: Track work sessions with clients, projects, and categories — supports **parallel sessions** with smart disambiguation
 - **Memory Consolidation**: Automatic merging of similar memories
 - **Forgetting Curve**: Natural decay of unused, low-importance memories
 - **Export/Import**: Backup and share your memories
@@ -468,12 +468,12 @@ What do you remember about this project?
 
 | Tool | Description |
 |------|-------------|
-| `memoria_work_start` | Start tracking a work session |
-| `memoria_work_stop` | Stop active session and get duration |
-| `memoria_work_status` | Check if a session is active |
-| `memoria_work_pause` | Pause session (e.g., for breaks) |
-| `memoria_work_resume` | Resume a paused session |
-| `memoria_work_note` | Add notes to active session |
+| `memoria_work_start` | Start tracking a work session (supports parallel sessions) |
+| `memoria_work_stop` | Stop a session and get duration (specify `session_id` if multiple active) |
+| `memoria_work_status` | Check all active/paused sessions with warnings |
+| `memoria_work_pause` | Pause a session (specify `session_id` if multiple active) |
+| `memoria_work_resume` | Resume a paused session (specify `session_id` if multiple paused) |
+| `memoria_work_note` | Add notes to a session (specify `session_id` if multiple active) |
 | `memoria_work_report` | Generate time tracking reports |
 
 ### Skill: `/memoria-guide`
@@ -622,10 +622,13 @@ Track time spent on tasks, issues, and projects (requires PostgreSQL):
 # Start tracking work
 Start working on fixing the login timeout issue for AuthService
 
-# Check status
+# Start a second parallel session
+Start working on reviewing PR #42 for Memoria
+
+# Check status — shows all active sessions
 What am I working on?
 
-# Add a note
+# Add a note (auto-targets if only 1 session, asks if multiple)
 Note: Found the bug - timeout was set to 10s instead of 30s
 
 # Take a break
@@ -634,8 +637,8 @@ Pause work for lunch
 # Resume
 Resume working
 
-# Stop and see duration
-Stop working - fixed by increasing timeout to 30s
+# Stop a specific session when multiple are active
+Stop working on the login fix - increased timeout to 30s
 
 # Get reports
 Show me my work report for this week
@@ -643,6 +646,9 @@ How much time did I spend on AuthService this month?
 ```
 
 Time tracking supports:
+- **Parallel sessions**: Run multiple sessions simultaneously (configurable limit, default 3)
+  - **Hybrid disambiguation**: With 1 session, everything works without `session_id` — fully transparent. With multiple sessions, the system asks you to specify which one
+  - **Smart warnings**: Alerts for sessions open too long, duplicate sessions on the same project, and approaching the parallel limit
 - **Categories**: coding, review, meeting, support, research, documentation, devops
 - **Clients and Projects**: Track billable hours per client/project
 - **GitHub integration**: Link sessions to issues and PRs
@@ -914,6 +920,8 @@ All settings via environment variables with `MEMORIA_` prefix:
 | `MEMORIA_DB_MIGRATE` | `false` | Run database migrations on startup |
 | `MEMORIA_DB_POOL_MIN` | `2` | Minimum database connection pool size |
 | `MEMORIA_DB_POOL_MAX` | `10` | Maximum database connection pool size |
+| `MEMORIA_WORK_MAX_PARALLEL_SESSIONS` | `3` | Max parallel active/paused work sessions (0 = unlimited) |
+| `MEMORIA_WORK_SESSION_WARNING_HOURS` | `8.0` | Hours before a session triggers a forgotten-session warning |
 
 ---
 
