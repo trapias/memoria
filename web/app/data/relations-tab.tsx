@@ -9,7 +9,9 @@ import {
   formatDateTime,
 } from "@/lib/hooks/use-data";
 import { MEMORY_TYPE_COLORS } from "@/lib/hooks/use-memories";
-import type { MemoryPreviewData } from "@/lib/api";
+import type { MemoryPreviewData, Memory } from "@/lib/api";
+import { api } from "@/lib/api";
+import { MemoryDetail } from "@/components/memories/memory-detail";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -32,6 +34,7 @@ import {
   ChevronUp,
   Copy,
   Check,
+  Eye,
   X,
 } from "lucide-react";
 
@@ -63,10 +66,12 @@ function MemoryPreview({
   memory,
   memoryId,
   expanded,
+  onViewMemory,
 }: {
   memory: MemoryPreviewData | null;
   memoryId: string;
   expanded: boolean;
+  onViewMemory?: (memoryId: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -120,17 +125,28 @@ function MemoryPreview({
             imp: {memory.importance.toFixed(2)}
           </span>
         )}
-        <button
-          onClick={handleCopy}
-          className="ml-auto text-muted-foreground/50 hover:text-foreground transition-colors"
-          title="Copy memory ID"
-        >
-          {copied ? (
-            <Check className="h-3 w-3" />
-          ) : (
-            <Copy className="h-3 w-3" />
+        <div className="ml-auto flex items-center gap-1">
+          {onViewMemory && (
+            <button
+              onClick={() => onViewMemory(memoryId)}
+              className="text-muted-foreground/50 hover:text-foreground transition-colors"
+              title="View full memory"
+            >
+              <Eye className="h-3 w-3" />
+            </button>
           )}
-        </button>
+          <button
+            onClick={handleCopy}
+            className="text-muted-foreground/50 hover:text-foreground transition-colors"
+            title="Copy memory ID"
+          >
+            {copied ? (
+              <Check className="h-3 w-3" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -170,6 +186,7 @@ function MemoryPreview({
 function RelationCard({
   relation,
   onDelete,
+  onViewMemory,
   isDeleting,
 }: {
   relation: {
@@ -185,6 +202,7 @@ function RelationCard({
     target: MemoryPreviewData | null;
   };
   onDelete: (id: string) => void;
+  onViewMemory: (memoryId: string) => void;
   isDeleting: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -207,6 +225,7 @@ function RelationCard({
           memory={relation.source}
           memoryId={relation.source_id}
           expanded={expanded}
+          onViewMemory={onViewMemory}
         />
 
         {/* Relation indicator */}
@@ -226,6 +245,7 @@ function RelationCard({
           memory={relation.target}
           memoryId={relation.target_id}
           expanded={expanded}
+          onViewMemory={onViewMemory}
         />
       </div>
 
@@ -295,6 +315,20 @@ export function RelationsTab() {
   const deleteMutation = useDeleteDataRelation();
   const orphanMutation = useDeleteOrphanedRelations();
   const [orphanResult, setOrphanResult] = useState<number | null>(null);
+
+  // Memory detail modal
+  const [detailMemory, setDetailMemory] = useState<Memory | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  const handleViewMemory = useCallback(async (memoryId: string) => {
+    try {
+      const memory = await api.getMemory(memoryId);
+      setDetailMemory(memory);
+      setDetailOpen(true);
+    } catch (error) {
+      console.error("Failed to load memory:", error);
+    }
+  }, []);
 
   const handleCleanOrphaned = useCallback(async () => {
     if (
@@ -465,6 +499,7 @@ export function RelationsTab() {
                 key={relation.id}
                 relation={relation}
                 onDelete={handleDelete}
+                onViewMemory={handleViewMemory}
                 isDeleting={
                   deleteMutation.isPending &&
                   deleteMutation.variables === relation.id
@@ -504,6 +539,16 @@ export function RelationsTab() {
           </div>
         </>
       )}
+
+      {/* Memory Detail Modal */}
+      <MemoryDetail
+        memory={detailMemory}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        onSave={() => {}}
+        onDelete={() => {}}
+        onViewRelations={() => {}}
+      />
     </div>
   );
 }

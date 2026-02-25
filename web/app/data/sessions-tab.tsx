@@ -46,6 +46,7 @@ import {
   Users,
   Loader2,
 } from "lucide-react";
+import { SortableHeader, type SortDir } from "@/components/ui/sortable-header";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -132,6 +133,8 @@ export function SessionsTab() {
   const [filterProjectId, setFilterProjectId] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState("start_time");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   // Dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -156,8 +159,8 @@ export function SessionsTab() {
     category: category || undefined,
     status: status || undefined,
     search: search || undefined,
-    sort_by: "start_time",
-    sort_dir: "desc",
+    sort_by: sortBy,
+    sort_dir: sortDir,
   });
 
   const clientsQuery = useClientList();
@@ -400,7 +403,7 @@ export function SessionsTab() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All clients</SelectItem>
-              {(clientsQuery.data ?? []).map((c) => (
+              {[...(clientsQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })).map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
                 </SelectItem>
@@ -423,12 +426,12 @@ export function SessionsTab() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All projects</SelectItem>
-              {(filterClientId
+              {[...(filterClientId
                 ? (allProjectsQuery.data ?? []).filter(
                     (p) => p.client_id === filterClientId
                   )
                 : (allProjectsQuery.data ?? [])
-              ).map((p) => (
+              )].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })).map((p) => (
                 <SelectItem key={p.id} value={p.id}>
                   {p.name}
                 </SelectItem>
@@ -488,27 +491,15 @@ export function SessionsTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                Date
-              </th>
+              <SortableHeader label="Date" field="start_time" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">
                 Description
               </th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                Duration
-              </th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                Category
-              </th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                Client
-              </th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                Project
-              </th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                Status
-              </th>
+              <SortableHeader label="Duration" field="duration_minutes" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
+              <SortableHeader label="Category" field="category" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
+              <SortableHeader label="Client" field="client_name" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
+              <SortableHeader label="Project" field="project_name" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
+              <SortableHeader label="Status" field="status" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
               <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                 Actions
               </th>
@@ -686,7 +677,7 @@ export function SessionsTab() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No client</SelectItem>
-                  {(clientsQuery.data ?? []).map((c) => (
+                  {[...(clientsQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })).map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
                     </SelectItem>
@@ -709,7 +700,7 @@ export function SessionsTab() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No project</SelectItem>
-                  {(projectsQuery.data ?? []).map((p) => (
+                  {[...(projectsQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })).map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.name}
                     </SelectItem>

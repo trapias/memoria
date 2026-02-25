@@ -10,10 +10,13 @@ import { MemoryFilters } from "@/components/memories/memory-filters";
 import { MemoryDetail } from "@/components/memories/memory-detail";
 import {
   useMemoryList,
+  useMemory,
   useDeleteMemory,
   useUpdateMemory,
 } from "@/lib/hooks/use-memories";
 import { Memory } from "@/lib/api";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default function MemoriesPage() {
   const router = useRouter();
@@ -36,21 +39,38 @@ export default function MemoriesPage() {
   // Confirmation state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // Build query params
+  // Detect if the search query is a UUID (direct ID lookup)
+  const isIdSearch = UUID_REGEX.test(searchQuery.trim());
+
+  // Build query params (skip semantic search when doing ID lookup)
   const queryParams = useMemo(() => ({
     memory_type: memoryType !== "all" ? memoryType : undefined,
     tags: selectedTags.length > 0 ? selectedTags.join(",") : undefined,
-    query: searchQuery || undefined,
+    query: (!isIdSearch && searchQuery) || undefined,
     created_after: createdAfter || undefined,
     created_before: createdBefore || undefined,
     sort_by: sortBy as "created_at" | "updated_at" | "importance",
     sort_order: sortOrder as "asc" | "desc",
     limit,
     offset,
-  }), [searchQuery, memoryType, selectedTags, createdAfter, createdBefore, sortBy, sortOrder, offset]);
+  }), [searchQuery, isIdSearch, memoryType, selectedTags, createdAfter, createdBefore, sortBy, sortOrder, offset]);
 
   // Queries
-  const { data, isLoading, error, refetch } = useMemoryList(queryParams);
+  const { data: listData, isLoading: isListLoading, error: listError, refetch } = useMemoryList(
+    isIdSearch ? { limit: 0 } : queryParams  // Skip list query when searching by ID
+  );
+  const { data: idResult, isLoading: isIdLoading, error: idError } = useMemory(
+    isIdSearch ? searchQuery.trim() : null
+  );
+
+  // Merge results: if searching by ID, wrap single result into list format
+  const data = isIdSearch
+    ? (idResult
+      ? { memories: [idResult], total: 1, offset: 0, limit: 1, has_more: false }
+      : (isIdLoading ? undefined : { memories: [], total: 0, offset: 0, limit: 1, has_more: false }))
+    : listData;
+  const isLoading = isIdSearch ? isIdLoading : isListLoading;
+  const error = isIdSearch ? idError : listError;
   const deleteMutation = useDeleteMemory();
   const updateMutation = useUpdateMemory();
 

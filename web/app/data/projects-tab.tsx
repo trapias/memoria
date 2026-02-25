@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +29,7 @@ import {
   formatDuration,
   formatDate,
 } from "@/lib/hooks/use-data";
+import { SortableHeader, type SortDir } from "@/components/ui/sortable-header";
 
 interface ProjectFormData {
   name: string;
@@ -42,6 +43,33 @@ const EMPTY_FORM: ProjectFormData = {
   repo: "",
 };
 
+type ProjectSortField = "name" | "client_name" | "repo" | "session_count" | "total_minutes" | "last_activity";
+
+function compareProjects(a: DataProject, b: DataProject, field: ProjectSortField, dir: SortDir): number {
+  let cmp = 0;
+  switch (field) {
+    case "name":
+      cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      break;
+    case "client_name":
+      cmp = (a.client_name ?? "").localeCompare(b.client_name ?? "", undefined, { sensitivity: "base" });
+      break;
+    case "repo":
+      cmp = (a.repo ?? "").localeCompare(b.repo ?? "");
+      break;
+    case "session_count":
+      cmp = a.session_count - b.session_count;
+      break;
+    case "total_minutes":
+      cmp = a.total_minutes - b.total_minutes;
+      break;
+    case "last_activity":
+      cmp = (a.last_activity ?? "").localeCompare(b.last_activity ?? "");
+      break;
+  }
+  return dir === "asc" ? cmp : -cmp;
+}
+
 export function ProjectsTab() {
   const [selectedClientId, setSelectedClientId] = useState<string | undefined>(
     undefined
@@ -52,6 +80,10 @@ export function ProjectsTab() {
   );
   const [form, setForm] = useState<ProjectFormData>(EMPTY_FORM);
 
+  // Sort state — default alphabetical
+  const [sortField, setSortField] = useState<ProjectSortField>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
   const { data: projects, isLoading } = useProjectList(selectedClientId);
   const { data: clients } = useClientList();
   const createProject = useCreateProject();
@@ -59,6 +91,16 @@ export function ProjectsTab() {
   const deleteProject = useDeleteProject();
 
   const isSaving = createProject.isPending || updateProject.isPending;
+
+  const sortedProjects = useMemo(() => {
+    if (!projects) return [];
+    return [...projects].sort((a, b) => compareProjects(a, b, sortField, sortDir));
+  }, [projects, sortField, sortDir]);
+
+  function handleSort(field: string, dir: SortDir) {
+    setSortField(field as ProjectSortField);
+    setSortDir(dir);
+  }
 
   function openCreate() {
     setEditingProject(null);
@@ -172,7 +214,7 @@ export function ProjectsTab() {
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : !projects?.length ? (
+      ) : !sortedProjects.length ? (
         <div className="text-center py-12 text-muted-foreground">
           No projects found.
         </div>
@@ -181,26 +223,26 @@ export function ProjectsTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="text-left p-3 font-medium">Name</th>
-                <th className="text-left p-3 font-medium">Client</th>
-                <th className="text-left p-3 font-medium">Repo</th>
-                <th className="text-right p-3 font-medium">Sessions</th>
-                <th className="text-right p-3 font-medium">Total Hours</th>
-                <th className="text-left p-3 font-medium">Last Activity</th>
-                <th className="text-right p-3 font-medium">Actions</th>
+                <SortableHeader label="Name" field="name" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Client" field="client_name" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Repo" field="repo" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Sessions" field="session_count" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Total Hours" field="total_minutes" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Last Activity" field="last_activity" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
+                <th className="p-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {projects.map((project) => (
+              {sortedProjects.map((project) => (
                 <tr
                   key={project.id}
                   className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
                 >
-                  <td className="p-3 font-medium">{project.name}</td>
-                  <td className="p-3 text-muted-foreground">
-                    {project.client_name ?? "—"}
+                  <td className="px-4 py-3 font-medium">{project.name}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {project.client_name ?? "\u2014"}
                   </td>
-                  <td className="p-3">
+                  <td className="px-4 py-3">
                     {project.repo ? (
                       <a
                         href={`https://github.com/${project.repo}`}
@@ -212,21 +254,21 @@ export function ProjectsTab() {
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <span className="text-muted-foreground">{"\u2014"}</span>
                     )}
                   </td>
-                  <td className="p-3 text-right tabular-nums">
+                  <td className="px-4 py-3 text-right tabular-nums">
                     {project.session_count}
                   </td>
-                  <td className="p-3 text-right tabular-nums">
+                  <td className="px-4 py-3 text-right tabular-nums">
                     {formatDuration(project.total_minutes)}
                   </td>
-                  <td className="p-3 text-muted-foreground">
+                  <td className="px-4 py-3 text-muted-foreground">
                     {project.last_activity
                       ? formatDate(project.last_activity)
-                      : "—"}
+                      : "\u2014"}
                   </td>
-                  <td className="p-3 text-right">
+                  <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <Button
                         variant="ghost"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,7 @@ import {
   formatDate,
 } from "@/lib/hooks/use-data";
 import { type DataClient } from "@/lib/api";
+import { SortableHeader, type SortDir } from "@/components/ui/sortable-header";
 
 interface ClientFormState {
   name: string;
@@ -32,6 +33,30 @@ const EMPTY_FORM: ClientFormState = {
   metadataJson: "{}",
 };
 
+type ClientSortField = "name" | "project_count" | "session_count" | "total_minutes" | "last_activity";
+
+function compareClients(a: DataClient, b: DataClient, field: ClientSortField, dir: SortDir): number {
+  let cmp = 0;
+  switch (field) {
+    case "name":
+      cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      break;
+    case "project_count":
+      cmp = a.project_count - b.project_count;
+      break;
+    case "session_count":
+      cmp = a.session_count - b.session_count;
+      break;
+    case "total_minutes":
+      cmp = a.total_minutes - b.total_minutes;
+      break;
+    case "last_activity":
+      cmp = (a.last_activity ?? "").localeCompare(b.last_activity ?? "");
+      break;
+  }
+  return dir === "asc" ? cmp : -cmp;
+}
+
 export function ClientsTab() {
   const { data: clients, isLoading, error } = useClientList();
   const createClient = useCreateClient();
@@ -42,6 +67,20 @@ export function ClientsTab() {
   const [editingClient, setEditingClient] = useState<DataClient | null>(null);
   const [form, setForm] = useState<ClientFormState>(EMPTY_FORM);
   const [jsonError, setJsonError] = useState<string | null>(null);
+
+  // Sort state — default alphabetical
+  const [sortField, setSortField] = useState<ClientSortField>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const sortedClients = useMemo(() => {
+    if (!clients) return [];
+    return [...clients].sort((a, b) => compareClients(a, b, sortField, sortDir));
+  }, [clients, sortField, sortDir]);
+
+  function handleSort(field: string, dir: SortDir) {
+    setSortField(field as ClientSortField);
+    setSortDir(dir);
+  }
 
   function openCreateDialog() {
     setEditingClient(null);
@@ -151,25 +190,21 @@ export function ClientsTab() {
       </div>
 
       {/* Table */}
-      {clients && clients.length > 0 ? (
+      {sortedClients.length > 0 ? (
         <div className="rounded-md border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-4 py-3 text-left font-medium">Name</th>
-                <th className="px-4 py-3 text-right font-medium">Projects</th>
-                <th className="px-4 py-3 text-right font-medium">Sessions</th>
-                <th className="px-4 py-3 text-right font-medium">
-                  Total Hours
-                </th>
-                <th className="px-4 py-3 text-left font-medium">
-                  Last Activity
-                </th>
+                <SortableHeader label="Name" field="name" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Projects" field="project_count" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Sessions" field="session_count" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Total Hours" field="total_minutes" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Last Activity" field="last_activity" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
                 <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {clients.map((client) => (
+              {sortedClients.map((client) => (
                 <tr
                   key={client.id}
                   className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
