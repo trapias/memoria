@@ -1,40 +1,53 @@
 -- Initial Memoria PostgreSQL Schema
 -- Creates clients, projects, work_sessions, memory_relations, and user_settings tables
+-- All statements are idempotent (safe to re-run on existing databases)
 
 -- =============================================================================
--- ENUM TYPES
+-- ENUM TYPES (use DO blocks since CREATE TYPE has no IF NOT EXISTS)
 -- =============================================================================
 
-CREATE TYPE session_category AS ENUM (
-    'coding', 'review', 'meeting', 'support',
-    'research', 'documentation', 'devops', 'other'
-);
+DO $$ BEGIN
+    CREATE TYPE session_category AS ENUM (
+        'coding', 'review', 'meeting', 'support',
+        'research', 'documentation', 'devops', 'other'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE session_status AS ENUM ('active', 'paused', 'completed');
+DO $$ BEGIN
+    CREATE TYPE session_status AS ENUM ('active', 'paused', 'completed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE relation_type AS ENUM (
-    'causes',      -- A leads to B
-    'fixes',       -- A resolves B
-    'supports',    -- A confirms B
-    'opposes',     -- A contradicts B
-    'follows',     -- A comes after B
-    'supersedes',  -- A replaces B
-    'derives',     -- A is derived from B
-    'part_of',     -- A is component of B
-    'related'      -- Generic connection
-);
+DO $$ BEGIN
+    CREATE TYPE relation_type AS ENUM (
+        'causes',      -- A leads to B
+        'fixes',       -- A resolves B
+        'supports',    -- A confirms B
+        'opposes',     -- A contradicts B
+        'follows',     -- A comes after B
+        'supersedes',  -- A replaces B
+        'derives',     -- A is derived from B
+        'part_of',     -- A is component of B
+        'related'      -- Generic connection
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE relation_creator AS ENUM (
-    'user',        -- Manually created
-    'auto',        -- AI suggested and accepted
-    'system'       -- Created by consolidation/system
-);
+DO $$ BEGIN
+    CREATE TYPE relation_creator AS ENUM (
+        'user',        -- Manually created
+        'auto',        -- AI suggested and accepted
+        'system'       -- Created by consolidation/system
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- =============================================================================
 -- CLIENTS TABLE
 -- =============================================================================
 
-CREATE TABLE clients (
+CREATE TABLE IF NOT EXISTS clients (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT UNIQUE NOT NULL,
     metadata JSONB DEFAULT '{}',
@@ -51,6 +64,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS clients_updated_at ON clients;
 CREATE TRIGGER clients_updated_at
     BEFORE UPDATE ON clients
     FOR EACH ROW
@@ -60,7 +74,7 @@ CREATE TRIGGER clients_updated_at
 -- PROJECTS TABLE
 -- =============================================================================
 
-CREATE TABLE projects (
+CREATE TABLE IF NOT EXISTS projects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
     name TEXT NOT NULL,
@@ -72,9 +86,10 @@ CREATE TABLE projects (
     UNIQUE(client_id, name)
 );
 
-CREATE INDEX idx_projects_client ON projects(client_id);
-CREATE INDEX idx_projects_repo ON projects(repo) WHERE repo IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);
+CREATE INDEX IF NOT EXISTS idx_projects_repo ON projects(repo) WHERE repo IS NOT NULL;
 
+DROP TRIGGER IF EXISTS projects_updated_at ON projects;
 CREATE TRIGGER projects_updated_at
     BEFORE UPDATE ON projects
     FOR EACH ROW
@@ -84,7 +99,7 @@ CREATE TRIGGER projects_updated_at
 -- WORK SESSIONS TABLE
 -- =============================================================================
 
-CREATE TABLE work_sessions (
+CREATE TABLE IF NOT EXISTS work_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     -- Description
@@ -132,18 +147,19 @@ CREATE TABLE work_sessions (
 );
 
 -- Indexes for common queries
-CREATE INDEX idx_sessions_client ON work_sessions(client_id);
-CREATE INDEX idx_sessions_project ON work_sessions(project_id);
-CREATE INDEX idx_sessions_start_time ON work_sessions(start_time DESC);
-CREATE INDEX idx_sessions_status ON work_sessions(status);
-CREATE INDEX idx_sessions_category ON work_sessions(category);
+CREATE INDEX IF NOT EXISTS idx_sessions_client ON work_sessions(client_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_project ON work_sessions(project_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON work_sessions(start_time DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON work_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_category ON work_sessions(category);
 
 -- Composite index for date range + client queries
-CREATE INDEX idx_sessions_time_client ON work_sessions(start_time, client_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_time_client ON work_sessions(start_time, client_id);
 
 -- Partial index for active sessions (usually just one)
-CREATE INDEX idx_sessions_active ON work_sessions(id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_sessions_active ON work_sessions(id) WHERE status = 'active';
 
+DROP TRIGGER IF EXISTS work_sessions_updated_at ON work_sessions;
 CREATE TRIGGER work_sessions_updated_at
     BEFORE UPDATE ON work_sessions
     FOR EACH ROW
@@ -153,7 +169,7 @@ CREATE TRIGGER work_sessions_updated_at
 -- MEMORY RELATIONS TABLE (Knowledge Graph)
 -- =============================================================================
 
-CREATE TABLE memory_relations (
+CREATE TABLE IF NOT EXISTS memory_relations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     -- Endpoints (UUIDs match Qdrant point IDs)
@@ -179,24 +195,25 @@ CREATE TABLE memory_relations (
 );
 
 -- Indexes for graph traversal
-CREATE INDEX idx_relations_source ON memory_relations(source_id);
-CREATE INDEX idx_relations_target ON memory_relations(target_id);
-CREATE INDEX idx_relations_type ON memory_relations(relation_type);
+CREATE INDEX IF NOT EXISTS idx_relations_source ON memory_relations(source_id);
+CREATE INDEX IF NOT EXISTS idx_relations_target ON memory_relations(target_id);
+CREATE INDEX IF NOT EXISTS idx_relations_type ON memory_relations(relation_type);
 
 -- Composite for efficient neighbor queries
-CREATE INDEX idx_relations_source_type ON memory_relations(source_id, relation_type);
-CREATE INDEX idx_relations_target_type ON memory_relations(target_id, relation_type);
+CREATE INDEX IF NOT EXISTS idx_relations_source_type ON memory_relations(source_id, relation_type);
+CREATE INDEX IF NOT EXISTS idx_relations_target_type ON memory_relations(target_id, relation_type);
 
 -- =============================================================================
 -- USER SETTINGS TABLE
 -- =============================================================================
 
-CREATE TABLE user_settings (
+CREATE TABLE IF NOT EXISTS user_settings (
     key TEXT PRIMARY KEY,
     value JSONB NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS user_settings_updated_at ON user_settings;
 CREATE TRIGGER user_settings_updated_at
     BEFORE UPDATE ON user_settings
     FOR EACH ROW
