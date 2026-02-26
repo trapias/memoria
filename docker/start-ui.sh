@@ -43,9 +43,9 @@ if [ -n "$DB_URL" ]; then
     done
     echo "✓ PostgreSQL is ready at ${PG_HOST}:${PG_PORT}"
 
-    # Run database migrations
-    echo ""
-    /app/run-migrations.sh
+    # Migrations are handled automatically by the Python API on startup
+    # (via MEMORIA_DB_MIGRATE=true, which is the default)
+    echo "✓ Database migrations will run on API startup"
 else
     echo "⚠ DATABASE_URL not set, skipping PostgreSQL check and migrations"
 fi
