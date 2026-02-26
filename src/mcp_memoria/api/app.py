@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         try:
             database = Database(settings.database_url)
-            await database.connect()
+            await database.connect(run_migrations=settings.db_migrate)
             graph_manager = GraphManager(database, memory_manager.vector_store)
             app.state.database = database
             app.state.graph_manager = graph_manager

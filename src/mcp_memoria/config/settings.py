@@ -126,8 +126,8 @@ class Settings(BaseSettings):
         description="PostgreSQL connection URL (e.g., postgresql://user:pass@host:5432/db)",
     )
     db_migrate: bool = Field(
-        default=False,
-        description="Run database migrations on startup",
+        default=True,
+        description="Run database migrations on startup (safe: tracked and idempotent)",
     )
     db_pool_min: int = Field(
         default=2,
