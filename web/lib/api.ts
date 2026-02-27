@@ -1,4 +1,18 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8765";
+function getApiBase(): string {
+  // Explicit override via environment variable (baked in at build time)
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl) {
+    return envUrl;
+  }
+  // Auto-detect in browser: same host as the UI, port 8765
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:8765`;
+  }
+  // SSR fallback
+  return "http://localhost:8765";
+}
+
+const API_BASE = getApiBase();
 
 export interface GraphNode {
   id: string;

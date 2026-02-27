@@ -82,8 +82,9 @@ services:
       - MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434
       - MEMORIA_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - API_PORT=8765
-      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-      - NEXT_PUBLIC_API_URL=http://localhost:8765
+      - CORS_ORIGINS=*
+      # NEXT_PUBLIC_API_URL is auto-detected from browser hostname at runtime
+      # Set explicitly only if API is on a different host/port
       - UI_PORT=${UI_PORT:-3000}
     depends_on:
       qdrant:

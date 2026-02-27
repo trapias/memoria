@@ -100,6 +100,67 @@ def save_sync_state(state: dict):
     SYNC_STATE_FILE.write_text(json.dumps(state, indent=2))
 
 
+def get_collection_config(url: str, collection: str) -> dict | None:
+    """Get collection configuration (vector size, distance, payload indexes)."""
+    result = http_request(f"{url}/collections/{collection}")
+    if result and result.get("status") == "ok":
+        return result["result"]
+    return None
+
+
+def ensure_collection_exists(url: str, collection: str, source_url: str) -> tuple[bool, bool]:
+    """Ensure a collection exists on the target, creating it from source config if needed.
+
+    Returns (success, was_created) tuple.
+    """
+    # Check if collection already exists
+    result = http_request(f"{url}/collections/{collection}")
+    if result and result.get("status") == "ok":
+        return True, False
+
+    # Get config from source
+    source_config = get_collection_config(source_url, collection)
+    if not source_config:
+        log(f"  Cannot read config for {collection} from source", "ERROR")
+        return False, False
+
+    vectors_config = source_config["config"]["params"]["vectors"]
+    log(f"  Creating collection {collection} (size={vectors_config['size']}, "
+        f"distance={vectors_config['distance']})...")
+
+    create_data = {
+        "vectors": {
+            "size": vectors_config["size"],
+            "distance": vectors_config["distance"],
+        }
+    }
+
+    create_result = http_request(
+        f"{url}/collections/{collection}", "PUT", create_data, timeout=30
+    )
+    if not create_result or create_result.get("status") != "ok":
+        log(f"  Failed to create collection {collection}", "ERROR")
+        return False, False
+
+    # Recreate payload indexes from source
+    payload_schema = source_config.get("payload_schema", {})
+    for field_name, field_info in payload_schema.items():
+        index_data: dict[str, Any] = {"field_name": field_name}
+        if "params" in field_info:
+            # Text index with params
+            index_data["field_schema"] = field_info["params"]
+        else:
+            # Simple type index
+            type_map = {"keyword": "keyword", "integer": "integer", "bool": "bool", "text": "text"}
+            data_type = field_info.get("data_type", "keyword")
+            index_data["field_schema"] = type_map.get(data_type, "keyword")
+
+        http_request(f"{url}/collections/{collection}/index", "PUT", index_data)
+
+    log(f"  Collection {collection} created", "OK")
+    return True, True
+
+
 def get_all_points(url: str, collection: str) -> dict[str, dict] | None:
     """Get all points from a collection as {uuid: {payload, vector}}.
 
@@ -251,6 +312,7 @@ def sync_collection(
     remote_url: str,
     collection: str,
     last_sync: datetime | None,
+    state: dict,
     dry_run: bool = False
 ) -> dict:
     """Sync a single collection bidirectionally."""
@@ -264,6 +326,15 @@ def sync_collection(
     }
 
     log(f"Syncing {collection}...")
+
+    # Ensure collection exists on both sides (create from the other if missing)
+    remote_ok, remote_created = ensure_collection_exists(remote_url, collection, local_url)
+    local_ok, local_created = ensure_collection_exists(local_url, collection, remote_url)
+    if not remote_ok or not local_ok:
+        log(f"  SKIPPING {collection}: failed to ensure collection on both sides", "ERROR")
+        stats["errors"] += 1
+        return stats
+    freshly_created = remote_created or local_created
 
     # Get all points from both nodes
     log(f"  Fetching points from Local...", verbose_only=True)
@@ -282,9 +353,22 @@ def sync_collection(
 
     # Safety: block if one side is empty but the other has many points
     # This almost certainly means a fetch error, not a legitimate mass deletion
+    # Skip this check if:
+    #   - we just created the collection (empty is expected)
+    #   - the empty side's collection is genuinely new (fresh install / no prior sync data)
     MIN_POINTS_FOR_SAFETY = 10  # only apply safety check above this threshold
 
-    if max(len(local_points), len(remote_points)) >= MIN_POINTS_FOR_SAFETY:
+    # Detect fresh target: collection was just created, or is empty with no prior sync record
+    empty_side_is_fresh = freshly_created
+    if not empty_side_is_fresh and last_sync is not None:
+        # If one side is empty and we have a last_sync, check if this collection was
+        # tracked in previous syncs. If not, it's likely a fresh/reinstalled target.
+        col_state = state.get("collections", {}).get(collection, {})
+        if not col_state:
+            empty_side_is_fresh = True
+            log(f"  No prior sync record for {collection}, treating empty side as fresh", verbose_only=True)
+
+    if not empty_side_is_fresh and max(len(local_points), len(remote_points)) >= MIN_POINTS_FOR_SAFETY:
         if len(local_points) == 0 and len(remote_points) > 0:
             log(f"  SKIPPING {collection}: Local returned 0 points but Remote has {len(remote_points)} "
                 f"- likely a fetch error, not a deletion. Use --reset-state for a fresh sync.", "WARN")
@@ -295,6 +379,15 @@ def sync_collection(
                 f"- likely a fetch error, not a deletion. Use --reset-state for a fresh sync.", "WARN")
             stats["errors"] += 1
             return stats
+
+    # CRITICAL SAFETY: if one side is empty (fresh install/reinstall),
+    # force first-sync mode (last_sync=None) so we only COPY, never DELETE.
+    # Without this, all points on the populated side older than last_sync
+    # would be incorrectly deleted (interpreted as "deleted on the empty side").
+    effective_last_sync = last_sync
+    if empty_side_is_fresh and (len(local_points) == 0 or len(remote_points) == 0):
+        effective_last_sync = None
+        log(f"  Fresh target detected, using first-sync mode (copy only, no deletions)")
 
     all_uuids = set(local_points.keys()) | set(remote_points.keys())
 
@@ -333,7 +426,7 @@ def sync_collection(
             # Only on Local - new or deleted on Remote?
             local_ts = get_point_timestamp(local_point)
 
-            if last_sync is None or local_ts > last_sync:
+            if effective_last_sync is None or local_ts > effective_last_sync:
                 to_remote.append({
                     "id": uuid,
                     "vector": local_point["vector"],
@@ -350,7 +443,7 @@ def sync_collection(
             # Only on Remote - new or deleted on Local?
             remote_ts = get_point_timestamp(remote_point)
 
-            if last_sync is None or remote_ts > last_sync:
+            if effective_last_sync is None or remote_ts > effective_last_sync:
                 to_local.append({
                     "id": uuid,
                     "vector": remote_point["vector"],
@@ -481,6 +574,7 @@ def main():
             remote_url=remote_url,
             collection=collection,
             last_sync=last_sync,
+            state=state,
             dry_run=args.dry_run
         )
         for key in total_stats:
@@ -488,9 +582,14 @@ def main():
 
     print()
 
-    # Save new sync state
+    # Save new sync state (including per-collection records for fresh-target detection)
     if not args.dry_run and total_stats["errors"] == 0:
-        state["last_sync"] = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
+        state["last_sync"] = now
+        if "collections" not in state:
+            state["collections"] = {}
+        for collection in COLLECTIONS:
+            state["collections"][collection] = {"last_sync": now}
         save_sync_state(state)
 
     # Summary

@@ -70,10 +70,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Configure CORS
-    cors_origins = os.environ.get(
-        "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
-    ).split(",")
+    # Configure CORS - default allows all origins for local network access
+    cors_origins_str = os.environ.get("CORS_ORIGINS", "*")
+    cors_origins = (
+        ["*"] if cors_origins_str.strip() == "*"
+        else [o.strip() for o in cors_origins_str.split(",")]
+    )
 
     app.add_middleware(
         CORSMiddleware,
