@@ -148,6 +148,11 @@ class MemoriaServer:
                                 "default": False,
                                 "description": "If true, return compact results (id, preview, tags only) to save tokens",
                             },
+                            "hybrid": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "If true, use multi-strategy recall (semantic + keyword + graph) with RRF fusion for better results",
+                            },
                         },
                         "required": ["query"],
                     },
@@ -689,6 +694,8 @@ class MemoriaServer:
                 limit=args.get("limit", 5),
                 min_score=args.get("min_score", 0.5),
                 text_match=args.get("text_match"),
+                hybrid=args.get("hybrid", False),
+                graph_manager=self.graph_manager,
             )
 
             if not results:

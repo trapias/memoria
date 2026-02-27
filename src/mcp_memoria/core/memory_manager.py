@@ -15,6 +15,7 @@ from mcp_memoria.core.memory_types import (
     RecallResult,
     create_memory,
 )
+from mcp_memoria.core.multi_recall import MultiRecall
 from mcp_memoria.core.working_memory import WorkingMemory
 from mcp_memoria.embeddings.chunking import ChunkingConfig, TextChunker
 from mcp_memoria.embeddings.embedding_cache import EmbeddingCache
@@ -247,6 +248,8 @@ class MemoryManager:
         min_score: float | None = None,
         filters: dict[str, Any] | None = None,
         text_match: str | None = None,
+        hybrid: bool = False,
+        graph_manager: Any | None = None,
     ) -> list[RecallResult]:
         """Recall memories similar to a query.
 
@@ -257,6 +260,8 @@ class MemoryManager:
             min_score: Minimum similarity score
             filters: Additional filters
             text_match: Optional keyword that must appear in content
+            hybrid: If True, use multi-strategy recall with RRF fusion
+            graph_manager: Optional GraphManager for graph-based retrieval
 
         Returns:
             List of RecallResults
@@ -274,6 +279,34 @@ class MemoryManager:
             filters = dict(filters) if filters else {}
             filters["__text_match"] = text_match
 
+        # Hybrid multi-strategy recall with RRF
+        if hybrid:
+            multi = MultiRecall(
+                vector_store=self.vector_store,
+                embedder=self.embedder,
+                graph_manager=graph_manager,
+            )
+            results = await multi.hybrid_recall(
+                query=query,
+                memory_types=memory_types,
+                limit=limit,
+                min_score=min_score,
+                filters=filters,
+            )
+
+            # Log action
+            self.working_memory.add_to_history(
+                "recall_memory",
+                {
+                    "query": query[:100],
+                    "results_count": len(results),
+                    "types": [t.value for t in memory_types],
+                    "hybrid": True,
+                },
+            )
+            return results
+
+        # Standard semantic-only recall
         # Generate query embedding
         result = await self.embedder.embed(query, text_type="query")
 
