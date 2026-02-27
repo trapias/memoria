@@ -377,6 +377,45 @@ class MemoriaServer:
                         },
                     },
                 ),
+                # Reflect tool (LLM reasoning over memory)
+                Tool(
+                    name="memoria_reflect",
+                    description="Reason over your memories to synthesize insights, build timelines, compare information, or analyze patterns. Uses LLM to generate structured reflections from retrieved memories.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "What to reflect about",
+                            },
+                            "style": {
+                                "type": "string",
+                                "enum": ["synthesis", "timeline", "comparison", "analysis"],
+                                "default": "synthesis",
+                                "description": "Reflection style: synthesis (unified summary), timeline (chronological), comparison (contrast), analysis (patterns & insights)",
+                            },
+                            "depth": {
+                                "type": "string",
+                                "enum": ["quick", "thorough", "deep"],
+                                "default": "thorough",
+                                "description": "How many memories to consider: quick (5), thorough (15), deep (30)",
+                            },
+                            "memory_types": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["episodic", "semantic", "procedural"],
+                                },
+                                "description": "Filter by memory types (all if omitted)",
+                            },
+                            "llm_model": {
+                                "type": "string",
+                                "description": "Override LLM model (default: llama3.2:3b)",
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                ),
                 # Graph tools (require PostgreSQL)
                 Tool(
                     name="memoria_link",
@@ -910,6 +949,31 @@ class MemoriaServer:
             if args.get("file"):
                 self.memory_manager.working_memory.set_current_file(args["file"])
             return "Context updated."
+
+        # Reflect tool
+        elif name == "memoria_reflect":
+            from mcp_memoria.core.reflect import Reflector
+
+            memory_types = None
+            if args.get("memory_types"):
+                memory_types = [MemoryType(t) for t in args["memory_types"]]
+
+            reflector = Reflector(
+                memory_manager=self.memory_manager,
+                embedder=self.memory_manager.embedder,
+                graph_manager=self.graph_manager,
+            )
+            result = await reflector.reflect(
+                query=args["query"],
+                style=args.get("style", "synthesis"),
+                depth=args.get("depth", "thorough"),
+                memory_types=memory_types,
+                llm_model=args.get("llm_model"),
+            )
+            return (
+                f"## Reflection ({result['style']}, {result['sources']} sources, depth: {result['depth']})\n\n"
+                f"{result['reflection']}"
+            )
 
         # Graph tools
         elif name == "memoria_link":

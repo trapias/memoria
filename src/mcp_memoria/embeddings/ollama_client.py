@@ -259,6 +259,51 @@ class OllamaEmbedder:
             logger.error(f"Failed to ensure model {self.model}: {e}")
             return False
 
+    async def generate(
+        self,
+        prompt: str,
+        model: str | None = None,
+        system: str | None = None,
+        temperature: float = 0.3,
+    ) -> str:
+        """Generate text completion using Ollama LLM.
+
+        Args:
+            prompt: User prompt
+            model: LLM model name (defaults to a small chat model)
+            system: Optional system prompt
+            temperature: Sampling temperature (lower = more focused)
+
+        Returns:
+            Generated text response
+        """
+        llm_model = model or "llama3.2:3b"
+
+        # Apply rate limiting
+        if self._rate_limiter:
+            await self._rate_limiter.acquire()
+
+        async def _do_generate():
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+            response = self._client.chat(
+                model=llm_model,
+                messages=messages,
+                options={"temperature": temperature},
+            )
+            return response["message"]["content"]
+
+        try:
+            if self._circuit_breaker:
+                return await self._circuit_breaker.call(_do_generate)
+            else:
+                return await _do_generate()
+        except Exception as e:
+            logger.error(f"Error generating text: {e}")
+            raise RuntimeError(f"Failed to generate text: {e}") from e
+
     def get_model_info(self) -> dict:
         """Get information about the current model.
 
