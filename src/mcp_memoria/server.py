@@ -416,6 +416,41 @@ class MemoriaServer:
                         "required": ["query"],
                     },
                 ),
+                # Observation consolidation tool
+                Tool(
+                    name="memoria_observe",
+                    description="Find clusters of similar memories and generate higher-level observations/insights. Dry-run by default — set dry_run=false to store observations as new memories.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "memory_type": {
+                                "type": "string",
+                                "enum": ["episodic", "semantic", "procedural"],
+                                "default": "semantic",
+                                "description": "Memory type to scan for clusters",
+                            },
+                            "dry_run": {
+                                "type": "boolean",
+                                "default": True,
+                                "description": "If true (default), only show what observations would be generated without storing them",
+                            },
+                            "similarity_threshold": {
+                                "type": "number",
+                                "default": 0.75,
+                                "description": "Minimum similarity to group memories into a cluster (0.0-1.0)",
+                            },
+                            "min_cluster_size": {
+                                "type": "integer",
+                                "default": 3,
+                                "description": "Minimum memories in a cluster to generate an observation",
+                            },
+                            "llm_model": {
+                                "type": "string",
+                                "description": "Override LLM model (default: llama3.2:3b)",
+                            },
+                        },
+                    },
+                ),
                 # Graph tools (require PostgreSQL)
                 Tool(
                     name="memoria_link",
@@ -974,6 +1009,42 @@ class MemoriaServer:
                 f"## Reflection ({result['style']}, {result['sources']} sources, depth: {result['depth']})\n\n"
                 f"{result['reflection']}"
             )
+
+        # Observation consolidation
+        elif name == "memoria_observe":
+            from mcp_memoria.core.observation import ObservationConsolidator
+
+            memory_type = MemoryType(args.get("memory_type", "semantic"))
+            consolidator = ObservationConsolidator(
+                memory_manager=self.memory_manager,
+                embedder=self.memory_manager.embedder,
+                graph_manager=self.graph_manager,
+                similarity_threshold=args.get("similarity_threshold", 0.75),
+                min_cluster_size=args.get("min_cluster_size", 3),
+            )
+
+            observations = await consolidator.generate_observations(
+                memory_type=memory_type,
+                dry_run=args.get("dry_run", True),
+                llm_model=args.get("llm_model"),
+            )
+
+            if not observations:
+                return "No clusters found with enough similar memories to generate observations."
+
+            dry_run = args.get("dry_run", True)
+            output = [f"{'[DRY RUN] ' if dry_run else ''}Generated {len(observations)} observations:\n"]
+            for i, obs in enumerate(observations, 1):
+                status = ""
+                if obs.get("stored"):
+                    status = f" [STORED: {obs['observation_id']}]"
+                output.append(
+                    f"{i}. ({obs['source_count']} sources){status}\n"
+                    f"   Observation: {obs['observation']}\n"
+                    f"   Sources: {', '.join(obs['source_ids'][:5])}"
+                    + (f"... (+{len(obs['source_ids'])-5} more)" if len(obs['source_ids']) > 5 else "")
+                )
+            return "\n".join(output)
 
         # Graph tools
         elif name == "memoria_link":
