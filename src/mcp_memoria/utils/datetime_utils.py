@@ -49,6 +49,7 @@ _TEMPORAL_PATTERNS: list[tuple[re.Pattern, Any]] = [
     (re.compile(r"\bieri\b", re.IGNORECASE), lambda: timedelta(days=1)),
     (re.compile(r"\bl['']?altro\s*ieri\b", re.IGNORECASE), lambda: timedelta(days=2)),
     (re.compile(r"\bquesta\s+settimana\b", re.IGNORECASE), lambda: timedelta(days=7)),
+    (re.compile(r"\bultima\s+settimana\b", re.IGNORECASE), lambda: timedelta(days=14)),
     (re.compile(r"\bsettimana\s+scorsa\b", re.IGNORECASE), lambda: timedelta(days=14)),
     (re.compile(r"\bquesto\s+mese\b", re.IGNORECASE), lambda: timedelta(days=30)),
     (re.compile(r"\bmese\s+scorso\b", re.IGNORECASE), lambda: timedelta(days=60)),

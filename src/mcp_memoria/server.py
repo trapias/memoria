@@ -410,7 +410,7 @@ class MemoriaServer:
                             },
                             "llm_model": {
                                 "type": "string",
-                                "description": "Override LLM model (default: llama3.2:3b)",
+                                "description": "Override LLM model (default: llama3.2)",
                             },
                         },
                         "required": ["query"],
@@ -446,7 +446,7 @@ class MemoriaServer:
                             },
                             "llm_model": {
                                 "type": "string",
-                                "description": "Override LLM model (default: llama3.2:3b)",
+                                "description": "Override LLM model (default: llama3.2)",
                             },
                         },
                     },

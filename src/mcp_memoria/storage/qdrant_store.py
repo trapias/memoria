@@ -8,6 +8,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.models import (
+    DatetimeRange,
     Distance,
     FieldCondition,
     Filter,
@@ -559,17 +560,33 @@ class QdrantStore:
                         )
             elif isinstance(value, dict):
                 if "gte" in value or "lte" in value or "gt" in value or "lt" in value:
-                    must_conditions.append(
-                        FieldCondition(
-                            key=key,
-                            range=Range(
-                                gte=value.get("gte"),
-                                lte=value.get("lte"),
-                                gt=value.get("gt"),
-                                lt=value.get("lt"),
-                            ),
+                    # Detect if values are datetime strings (ISO format)
+                    sample = next((v for v in value.values() if v is not None), None)
+                    is_datetime = isinstance(sample, str) and ("T" in sample or len(sample) == 10)
+                    if is_datetime:
+                        must_conditions.append(
+                            FieldCondition(
+                                key=key,
+                                range=DatetimeRange(
+                                    gte=value.get("gte"),
+                                    lte=value.get("lte"),
+                                    gt=value.get("gt"),
+                                    lt=value.get("lt"),
+                                ),
+                            )
                         )
-                    )
+                    else:
+                        must_conditions.append(
+                            FieldCondition(
+                                key=key,
+                                range=Range(
+                                    gte=value.get("gte"),
+                                    lte=value.get("lte"),
+                                    gt=value.get("gt"),
+                                    lt=value.get("lt"),
+                                ),
+                            )
+                        )
             elif isinstance(value, list):
                 must_conditions.append(
                     FieldCondition(key=key, match=MatchAny(any=value))

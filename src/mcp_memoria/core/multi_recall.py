@@ -85,7 +85,7 @@ class MultiRecall:
     async def hybrid_recall(
         self,
         query: str,
-        memory_types: list[MemoryType],
+        memory_types: list[MemoryType | str],
         limit: int = 5,
         min_score: float = 0.5,
         filters: dict[str, Any] | None = None,
@@ -94,7 +94,7 @@ class MultiRecall:
 
         Args:
             query: Search query
-            memory_types: Memory types to search
+            memory_types: Memory types to search (enum or string)
             limit: Maximum results to return
             min_score: Minimum similarity score for semantic search
             filters: Additional filter conditions
@@ -102,6 +102,8 @@ class MultiRecall:
         Returns:
             Fused list of RecallResults
         """
+        # Normalize memory_types to enums
+        memory_types = [MemoryType(t) if isinstance(t, str) else t for t in memory_types]
         # Run semantic and keyword strategies in parallel
         semantic_task = self._semantic_strategy(
             query, memory_types, limit * 3, min_score, filters

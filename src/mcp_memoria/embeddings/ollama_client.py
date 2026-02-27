@@ -277,7 +277,7 @@ class OllamaEmbedder:
         Returns:
             Generated text response
         """
-        llm_model = model or "llama3.2:3b"
+        llm_model = model or "llama3.2"
 
         # Apply rate limiting
         if self._rate_limiter:
