@@ -22,6 +22,7 @@ from mcp_memoria.config.settings import Settings, get_settings
 from mcp_memoria.core.memory_manager import MemoryManager
 from mcp_memoria.core.memory_types import MemoryType
 from mcp_memoria.core.graph_types import RelationType, RelationDirection
+from mcp_memoria.utils.datetime_utils import parse_datetime, parse_temporal_query
 
 # Check PostgreSQL availability for graph and work tracking features
 try:
@@ -153,6 +154,14 @@ class MemoriaServer:
                                 "default": False,
                                 "description": "If true, use multi-strategy recall (semantic + keyword + graph) with RRF fusion for better results",
                             },
+                            "date_from": {
+                                "type": "string",
+                                "description": "Filter: only memories created after this date (ISO format or natural language: 'yesterday', 'last week', 'ieri', 'settimana scorsa', 'last 3 days', 'ultimi 5 giorni')",
+                            },
+                            "date_to": {
+                                "type": "string",
+                                "description": "Filter: only memories created before this date (ISO format)",
+                            },
                         },
                         "required": ["query"],
                     },
@@ -202,6 +211,14 @@ class MemoriaServer:
                                 "type": "boolean",
                                 "default": False,
                                 "description": "If true, return compact results (id, preview, tags only) to save tokens",
+                            },
+                            "date_from": {
+                                "type": "string",
+                                "description": "Filter: only memories created after this date (ISO format or natural language: 'yesterday', 'last week', 'ieri', 'settimana scorsa')",
+                            },
+                            "date_to": {
+                                "type": "string",
+                                "description": "Filter: only memories created before this date (ISO format)",
                             },
                         },
                     },
@@ -688,14 +705,44 @@ class MemoriaServer:
             return f"Stored memory: {memory.id} ({memory.memory_type.value})"
 
         elif name == "memoria_recall":
+            # Parse temporal date filters
+            query = args["query"]
+            date_from_str = args.get("date_from")
+            date_to_str = args.get("date_to")
+
+            # Try natural language temporal parsing from date_from or query
+            if date_from_str:
+                _, parsed_from, parsed_to = parse_temporal_query(date_from_str)
+                if parsed_from:
+                    date_from = parsed_from
+                    date_to = parse_datetime(date_to_str) if date_to_str else parsed_to
+                else:
+                    date_from = parse_datetime(date_from_str)
+                    date_to = parse_datetime(date_to_str) if date_to_str else None
+            else:
+                date_from = None
+                date_to = parse_datetime(date_to_str) if date_to_str else None
+
+            # Build filters for date range
+            filters = None
+            if date_from or date_to:
+                filters = {}
+                created_at_range = {}
+                if date_from:
+                    created_at_range["gte"] = date_from.isoformat()
+                if date_to:
+                    created_at_range["lte"] = date_to.isoformat()
+                filters["created_at"] = created_at_range
+
             results = await self.memory_manager.recall(
-                query=args["query"],
+                query=query,
                 memory_types=args.get("memory_types"),
                 limit=args.get("limit", 5),
                 min_score=args.get("min_score", 0.5),
                 text_match=args.get("text_match"),
                 hybrid=args.get("hybrid", False),
                 graph_manager=self.graph_manager,
+                filters=filters,
             )
 
             if not results:
@@ -723,6 +770,22 @@ class MemoriaServer:
             return "\n".join(output)
 
         elif name == "memoria_search":
+            # Parse temporal date filters
+            date_from_str = args.get("date_from")
+            date_to_str = args.get("date_to")
+
+            if date_from_str:
+                _, parsed_from, parsed_to = parse_temporal_query(date_from_str)
+                if parsed_from:
+                    search_date_from = parsed_from
+                    search_date_to = parse_datetime(date_to_str) if date_to_str else parsed_to
+                else:
+                    search_date_from = parse_datetime(date_from_str)
+                    search_date_to = parse_datetime(date_to_str) if date_to_str else None
+            else:
+                search_date_from = None
+                search_date_to = parse_datetime(date_to_str) if date_to_str else None
+
             results = await self.memory_manager.search(
                 query=args.get("query"),
                 memory_type=args.get("memory_type"),
@@ -732,6 +795,8 @@ class MemoriaServer:
                 limit=args.get("limit", 10),
                 sort_by=args.get("sort_by", "relevance"),
                 text_match=args.get("text_match"),
+                date_from=search_date_from,
+                date_to=search_date_to,
             )
 
             if not results:
