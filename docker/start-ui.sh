@@ -7,7 +7,9 @@
 
 set -e
 
-echo "=== Memoria Web UI Container ==="
+# Print version from installed package
+MEMORIA_VERSION=$(python -c "from mcp_memoria import __version__; print(__version__)" 2>/dev/null || echo "unknown")
+echo "=== Memoria Web UI Container v${MEMORIA_VERSION} ==="
 echo ""
 
 # Function to handle shutdown

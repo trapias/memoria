@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .. import __version__
 from ..config.settings import Settings
 from ..core.memory_manager import MemoryManager
 from ..db import ASYNCPG_AVAILABLE
@@ -92,6 +93,6 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health_check():
         """Health check endpoint."""
-        return {"status": "ok"}
+        return {"status": "ok", "version": __version__}
 
     return app
