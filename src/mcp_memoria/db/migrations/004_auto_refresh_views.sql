@@ -100,7 +100,15 @@ COMMENT ON TRIGGER work_session_completed_refresh ON work_sessions IS
 
 -- =============================================================================
 -- INITIAL REFRESH
--- Ensure views are populated after migration
+-- Use non-concurrent refresh here (safe inside migration transaction;
+-- CONCURRENTLY is forbidden inside transactions)
 -- =============================================================================
 
-SELECT refresh_all_statistics();
+REFRESH MATERIALIZED VIEW monthly_work_summary;
+REFRESH MATERIALIZED VIEW daily_work_totals;
+
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_matviews WHERE matviewname = 'client_statistics') THEN
+        REFRESH MATERIALIZED VIEW client_statistics;
+    END IF;
+END $$;
