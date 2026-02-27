@@ -45,6 +45,10 @@ class Settings(BaseSettings):
         default=768,
         description="Embedding vector dimensions",
     )
+    llm_model: str = Field(
+        default="llama3.2",
+        description="Ollama model for LLM generation (used by reflect and observe tools)",
+    )
 
     # Cache settings
     cache_path: Path = Field(

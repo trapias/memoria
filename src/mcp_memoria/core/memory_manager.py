@@ -93,6 +93,7 @@ class MemoryManager:
             host=self.settings.ollama_host,
             model=self.settings.embedding_model,
             cache=self.cache,
+            llm_model=self.settings.llm_model,
         )
 
     def _init_working_memory(self) -> None:

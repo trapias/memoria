@@ -80,6 +80,7 @@ class OllamaEmbedder:
         cache: "EmbeddingCache | None" = None,
         timeout: float = 30.0,
         enable_rate_limiting: bool = True,
+        llm_model: str = "llama3.2",
     ):
         """Initialize the Ollama embedder.
 
@@ -89,11 +90,13 @@ class OllamaEmbedder:
             cache: Optional embedding cache
             timeout: Request timeout in seconds
             enable_rate_limiting: Enable rate limiting and circuit breaker
+            llm_model: Default LLM model for text generation (reflect/observe)
         """
         self.host = host
         self.model = model
         self.cache = cache
         self.timeout = timeout
+        self.llm_model = llm_model
 
         # Get model config or use defaults
         self.config = MODEL_CONFIGS.get(
@@ -277,7 +280,7 @@ class OllamaEmbedder:
         Returns:
             Generated text response
         """
-        llm_model = model or "llama3.2"
+        llm_model = model or self.llm_model
 
         # Apply rate limiting
         if self._rate_limiter:
@@ -312,6 +315,7 @@ class OllamaEmbedder:
         """
         return {
             "model": self.model,
+            "llm_model": self.llm_model,
             "host": self.host,
             **self.config,
         }

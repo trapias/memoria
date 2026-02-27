@@ -12,8 +12,11 @@ MCP Memoria is a Model Context Protocol (MCP) server that provides persistent, u
   - **Episodic**: Events, conversations, time-bound memories
   - **Semantic**: Facts, knowledge, concepts
   - **Procedural**: Procedures, workflows, learned skills
-- **Semantic Search**: Find relevant memories by meaning, not just keywords
-- **Full-Text Match**: Filter results by exact keyword presence in content
+- **Hybrid Search**: Multi-strategy retrieval combining semantic vectors, keyword matching, and graph traversal with Reciprocal Rank Fusion (RRF) for superior recall quality
+- **Temporal Retrieval**: Natural language date filters in English and Italian ("last week", "ultima settimana", "last 3 days")
+- **Compact Mode**: Token-efficient recall and search with `compact=true` — returns summaries instead of full content
+- **Reflection**: LLM-powered reasoning over memories — synthesize insights, build timelines, compare information, analyze patterns
+- **Observation Consolidation**: Automatically find clusters of similar memories and generate higher-level observations
 - **Content Chunking**: Long memories are automatically split into chunks for higher-quality embeddings; results are transparently deduplicated
 - **Knowledge Graph**: Create typed relationships between memories
   - 9 relation types: causes, fixes, supports, opposes, follows, supersedes, derives, part_of, related
@@ -365,7 +368,8 @@ docker compose -f docker-compose.server.yml down -v
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Ollama (native)                                      │   │
 │  │  http://localhost:11434                               │   │
-│  │  Provides: nomic-embed-text embeddings                │   │
+│  │  Provides: nomic-embed-text (embeddings)              │   │
+│  │            + LLM model (reflect/observe)              │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -453,6 +457,8 @@ What do you remember about this project?
 | `memoria_import` | Import memories from file (merge or replace mode) |
 | `memoria_stats` | View system statistics |
 | `memoria_set_context` | Set current project/file context |
+| `memoria_reflect` | LLM reasoning over memories (synthesis, timeline, comparison, analysis) |
+| `memoria_observe` | Find memory clusters and generate higher-level observations |
 
 **Knowledge Graph Tools** (require PostgreSQL):
 
@@ -544,6 +550,17 @@ Remember the steps to set up the dev environment
 What do you know about the database?
 How do we handle authentication?
 
+# Hybrid search (combines semantic + keyword + graph)
+Search memories about deployment using hybrid mode
+
+# Temporal filters (English and Italian)
+What happened last week?
+Search memories from the last 3 days
+Cerca nelle memorie di questa settimana
+
+# Compact mode (saves tokens in long conversations)
+Recall memories about authentication with compact=true
+
 # With filters
 Search memories about deployment from last week
 Find all procedural memories about testing
@@ -595,6 +612,36 @@ Suggest relationships for memory [id]
 | `derives` | A is derived from B | Summary → Original |
 | `part_of` | A is component of B | Chapter → Book |
 | `related` | Generic connection | Any correlation |
+
+### Reflection and Observation
+
+Use LLM-powered tools to reason over your memories:
+
+```
+# Synthesize insights from related memories
+Reflect on what we know about the authentication system
+
+# Build a timeline of events
+Reflect on the deployment history with style=timeline
+
+# Compare approaches
+Reflect on the pros and cons of our caching strategies with style=comparison
+
+# Deep analysis
+Reflect deeply on the project architecture with depth=deep
+
+# Find memory clusters and generate observations (dry run first)
+Observe patterns in my semantic memories
+
+# Generate and store observations
+Observe my episodic memories with dry_run=false
+```
+
+Reflection styles:
+- **synthesis**: Unified summary merging all relevant memories (default)
+- **timeline**: Chronological narrative of events
+- **comparison**: Side-by-side contrast of different approaches
+- **analysis**: Deep pattern analysis with insights
 
 ### Memory Management
 
@@ -895,6 +942,7 @@ All settings via environment variables with `MEMORIA_` prefix:
 | `MEMORIA_QDRANT_PATH` | `~/.mcp-memoria/qdrant` | Local Qdrant storage path (if no host) |
 | `MEMORIA_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `MEMORIA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model |
+| `MEMORIA_LLM_MODEL` | `llama3.2` | LLM model for reflect and observe tools |
 | `MEMORIA_EMBEDDING_DIMENSIONS` | `768` | Embedding vector dimensions |
 | `MEMORIA_CACHE_ENABLED` | `true` | Enable embedding cache |
 | `MEMORIA_CACHE_PATH` | `~/.mcp-memoria/cache` | Path for embedding cache |
@@ -947,6 +995,69 @@ For skills and procedures:
 - Build commands
 - Testing procedures
 - Common code patterns
+
+---
+
+## Ollama Models
+
+Memoria uses Ollama for two distinct purposes:
+
+### Embedding Model (always active)
+
+The embedding model converts text into vector representations for semantic search. It runs on every store, recall, and search operation.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MEMORIA_EMBEDDING_MODEL` | `nomic-embed-text` | Text-to-vector conversion |
+
+**Recommended:** `nomic-embed-text` is the best balance of quality and speed. Other supported models: `mxbai-embed-large` (1024d, higher quality), `bge-m3` (1024d, multilingual), `all-minilm` (384d, fastest).
+
+> **Important**: Changing the embedding model after storing memories requires re-embedding all existing data (different models produce incompatible vectors). Stick with one model.
+
+### LLM Model (reflect and observe only)
+
+The LLM model is used exclusively by `memoria_reflect` and `memoria_observe` to generate natural language synthesis from retrieved memories. It is **not** used for basic store/recall/search operations.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MEMORIA_LLM_MODEL` | `llama3.2` | Text generation for reflect/observe |
+
+You can also override the model per-call using the `llm_model` parameter in either tool.
+
+**Recommended models by hardware:**
+
+| Model | Size | RAM | Quality | Speed | Best for |
+|-------|------|-----|---------|-------|----------|
+| `llama3.2` | 3B | ~4 GB | Good | Fast | Default, CPU-friendly |
+| `gemma3:4b` | 4B | ~5 GB | Good | Fast | Alternative lightweight |
+| `llama3.1:8b` | 8B | ~8 GB | Better | Medium | Better synthesis quality |
+| `qwen2.5:7b` | 7B | ~7 GB | Better | Medium | Good multilingual support |
+| `llama3.1:70b` | 70B | ~40 GB | Best | Slow | Maximum quality (GPU required) |
+
+**Setup example:**
+
+```bash
+# Pull the embedding model (required)
+ollama pull nomic-embed-text
+
+# Pull an LLM model for reflect/observe (optional, only needed if you use these tools)
+ollama pull llama3.2
+```
+
+**Docker configuration with custom LLM model:**
+
+```bash
+claude mcp add --scope user memoria -- \
+  docker run --rm -i \
+  --network memoria-network \
+  -e MEMORIA_QDRANT_HOST=qdrant \
+  -e MEMORIA_QDRANT_PORT=6333 \
+  -e MEMORIA_DATABASE_URL=postgresql://memoria:memoria_dev@postgres:5432/memoria \
+  -e MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434 \
+  -e MEMORIA_LLM_MODEL=llama3.1:8b \
+  -e MEMORIA_LOG_LEVEL=WARNING \
+  ghcr.io/trapias/memoria:latest
+```
 
 ---
 
