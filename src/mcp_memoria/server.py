@@ -143,6 +143,11 @@ class MemoriaServer:
                                 "type": "string",
                                 "description": "Optional keyword that must appear in the memory content (full-text match)",
                             },
+                            "compact": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "If true, return compact results (id, preview, tags only) to save tokens",
+                            },
                         },
                         "required": ["query"],
                     },
@@ -187,6 +192,11 @@ class MemoriaServer:
                             "text_match": {
                                 "type": "string",
                                 "description": "Optional keyword that must appear in the memory content (full-text match)",
+                            },
+                            "compact": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "If true, return compact results (id, preview, tags only) to save tokens",
                             },
                         },
                     },
@@ -684,14 +694,25 @@ class MemoriaServer:
             if not results:
                 return "No memories found matching your query."
 
+            compact = args.get("compact", False)
             output = [f"Found {len(results)} memories:\n"]
             for i, r in enumerate(results, 1):
-                output.append(
-                    f"{i}. [{r.memory.memory_type.value}] (score: {r.score:.2f})\n"
-                    f"   ID: {r.memory.id}\n"
-                    f"   Content: {r.memory.content}\n"
-                    f"   Tags: {', '.join(r.memory.tags) if r.memory.tags else 'none'}\n"
-                )
+                if compact:
+                    preview = r.memory.content[:50].replace("\n", " ")
+                    if len(r.memory.content) > 50:
+                        preview += "..."
+                    tags = ", ".join(r.memory.tags) if r.memory.tags else ""
+                    output.append(
+                        f"{i}. {r.memory.id} | {preview}"
+                        + (f" | [{tags}]" if tags else "")
+                    )
+                else:
+                    output.append(
+                        f"{i}. [{r.memory.memory_type.value}] (score: {r.score:.2f})\n"
+                        f"   ID: {r.memory.id}\n"
+                        f"   Content: {r.memory.content}\n"
+                        f"   Tags: {', '.join(r.memory.tags) if r.memory.tags else 'none'}\n"
+                    )
             return "\n".join(output)
 
         elif name == "memoria_search":
@@ -709,13 +730,24 @@ class MemoriaServer:
             if not results:
                 return "No memories found matching your criteria."
 
+            compact = args.get("compact", False)
             output = [f"Found {len(results)} memories:\n"]
             for i, r in enumerate(results, 1):
-                output.append(
-                    f"{i}. [{r.memory.memory_type.value}] importance: {r.memory.importance:.2f}\n"
-                    f"   ID: {r.memory.id}\n"
-                    f"   Content: {r.memory.content}\n"
-                )
+                if compact:
+                    preview = r.memory.content[:50].replace("\n", " ")
+                    if len(r.memory.content) > 50:
+                        preview += "..."
+                    tags = ", ".join(r.memory.tags) if r.memory.tags else ""
+                    output.append(
+                        f"{i}. {r.memory.id} | {preview}"
+                        + (f" | [{tags}]" if tags else "")
+                    )
+                else:
+                    output.append(
+                        f"{i}. [{r.memory.memory_type.value}] importance: {r.memory.importance:.2f}\n"
+                        f"   ID: {r.memory.id}\n"
+                        f"   Content: {r.memory.content}\n"
+                    )
             return "\n".join(output)
 
         elif name == "memoria_update":
