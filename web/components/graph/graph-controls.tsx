@@ -27,7 +27,7 @@ export function GraphControls({
   onRelationFilterChange,
 }: GraphControlsProps) {
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex flex-wrap items-center gap-2 md:gap-4">
       {/* Depth selector */}
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">Depth:</span>
@@ -74,8 +74,8 @@ export function GraphControls({
         </Select>
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-2 ml-4">
+      {/* Legend — hidden on small screens */}
+      <div className="hidden lg:flex items-center gap-2 ml-4">
         <span className="text-sm text-muted-foreground">Legend:</span>
         <div className="flex flex-wrap gap-1">
           {RELATION_TYPES.slice(0, 5).map((type) => (

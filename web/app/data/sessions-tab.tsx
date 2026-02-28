@@ -339,7 +339,7 @@ export function SessionsTab() {
 
       {/* Filters Bar */}
       <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0 w-full sm:w-auto">
           <Label className="text-xs text-muted-foreground">From</Label>
           <Input
             type="date"
@@ -348,11 +348,11 @@ export function SessionsTab() {
               setDateFrom(e.target.value);
               setPage(1);
             }}
-            className="w-[150px]"
+            className="w-full sm:w-[150px]"
           />
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0 w-full sm:w-auto">
           <Label className="text-xs text-muted-foreground">To</Label>
           <Input
             type="date"
@@ -361,11 +361,11 @@ export function SessionsTab() {
               setDateTo(e.target.value);
               setPage(1);
             }}
-            className="w-[150px]"
+            className="w-full sm:w-[150px]"
           />
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0 w-[calc(50%-6px)] sm:w-auto">
           <Label className="text-xs text-muted-foreground">Category</Label>
           <Select
             value={category}
@@ -374,7 +374,7 @@ export function SessionsTab() {
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-full sm:w-[150px]">
               <SelectValue placeholder="All categories" />
             </SelectTrigger>
             <SelectContent>
@@ -388,7 +388,7 @@ export function SessionsTab() {
           </Select>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0 w-[calc(50%-6px)] sm:w-auto">
           <Label className="text-xs text-muted-foreground">Client</Label>
           <Select
             value={filterClientId || "all"}
@@ -398,7 +398,7 @@ export function SessionsTab() {
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-full sm:w-[150px]">
               <SelectValue placeholder="All clients" />
             </SelectTrigger>
             <SelectContent>
@@ -412,7 +412,7 @@ export function SessionsTab() {
           </Select>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0 w-[calc(50%-6px)] sm:w-auto">
           <Label className="text-xs text-muted-foreground">Project</Label>
           <Select
             value={filterProjectId || "all"}
@@ -421,7 +421,7 @@ export function SessionsTab() {
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-full sm:w-[150px]">
               <SelectValue placeholder="All projects" />
             </SelectTrigger>
             <SelectContent>
@@ -440,7 +440,7 @@ export function SessionsTab() {
           </Select>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0 w-[calc(50%-6px)] sm:w-auto">
           <Label className="text-xs text-muted-foreground">Status</Label>
           <Select
             value={status}
@@ -449,7 +449,7 @@ export function SessionsTab() {
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -461,7 +461,7 @@ export function SessionsTab() {
           </Select>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0 w-full sm:w-auto">
           <Label className="text-xs text-muted-foreground">Search</Label>
           <Input
             placeholder="Search description..."
@@ -470,11 +470,11 @@ export function SessionsTab() {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="w-[200px]"
+            className="w-full sm:w-[200px]"
           />
         </div>
 
-        <div className="flex gap-2 ml-auto">
+        <div className="flex gap-2 w-full sm:w-auto sm:ml-auto">
           <Button variant="outline" size="sm" onClick={handleExportCsv}>
             <Download className="h-4 w-4 mr-1" />
             CSV
@@ -487,8 +487,8 @@ export function SessionsTab() {
       </div>
 
       {/* Table */}
-      <div className="rounded-md border">
-        <table className="w-full text-sm">
+      <div className="rounded-md border overflow-x-auto">
+        <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="border-b bg-muted/50">
               <SortableHeader label="Date" field="start_time" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
@@ -497,8 +497,8 @@ export function SessionsTab() {
               </th>
               <SortableHeader label="Duration" field="duration_minutes" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
               <SortableHeader label="Category" field="category" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
-              <SortableHeader label="Client" field="client_name" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
-              <SortableHeader label="Project" field="project_name" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
+              <SortableHeader label="Client" field="client_name" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground hidden md:table-cell" />
+              <SortableHeader label="Project" field="project_name" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground hidden md:table-cell" />
               <SortableHeader label="Status" field="status" currentField={sortBy} currentDir={sortDir} onSort={(f, d) => { setSortBy(f); setSortDir(d); setPage(1); }} className="text-left text-muted-foreground" />
               <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                 Actions
@@ -549,10 +549,10 @@ export function SessionsTab() {
                       {session.category}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
                     {session.client_name || "--"}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
                     {session.project_name || "--"}
                   </td>
                   <td className="px-4 py-3">

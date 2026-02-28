@@ -93,13 +93,13 @@ function GraphPageInner() {
   }, []);
 
   return (
-    <div className="flex h-[calc(100vh-64px)] overflow-hidden">
+    <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] overflow-hidden">
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Controls */}
-        <div className="border-b p-4 bg-background">
-          <div className="flex items-center gap-4">
-            <div className="flex-1 max-w-md">
+        <div className="border-b p-3 md:p-4 bg-background">
+          <div className="flex flex-wrap items-center gap-2 md:gap-4">
+            <div className="w-full sm:flex-1 sm:max-w-md">
               <MemorySearch onSelect={handleMemorySelect} />
             </div>
             <Button
@@ -109,7 +109,8 @@ function GraphPageInner() {
               disabled={isLoadingOverview}
             >
               <Network className="h-4 w-4 mr-2" />
-              Show Overview
+              <span className="hidden sm:inline">Show Overview</span>
+              <span className="sm:hidden">Overview</span>
             </Button>
             <GraphControls
               depth={depth}
@@ -125,12 +126,14 @@ function GraphPageInner() {
               title={selectedNode ? "Add relation from selected node" : "Select a node first"}
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add Relation
+              <span className="hidden sm:inline">Add Relation</span>
+              <span className="sm:hidden">Relation</span>
             </Button>
             <Link href="/graph/discover">
               <Button variant="outline" size="sm">
                 <Sparkles className="h-4 w-4 mr-2" />
-                Discover Relations
+                <span className="hidden sm:inline">Discover Relations</span>
+                <span className="sm:hidden">Discover</span>
               </Button>
             </Link>
           </div>
@@ -182,7 +185,7 @@ function GraphPageInner() {
       </div>
 
       {/* Sidebar */}
-      <div className="w-80 shrink-0 border-l bg-background flex flex-col overflow-y-auto">
+      <div className="w-full md:w-80 shrink-0 border-t md:border-t-0 md:border-l bg-background flex flex-col overflow-y-auto max-h-[40vh] md:max-h-none">
         <GraphSidebar
           selectedNode={selectedNode}
           allNodes={activeGraph?.nodes ?? []}

@@ -372,7 +372,7 @@ export function RelationsTab() {
     <div className="space-y-4">
       {/* Filters bar */}
       <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
+        <div className="space-y-1 w-[calc(50%-6px)] sm:w-auto">
           <Label className="text-xs text-muted-foreground">Type</Label>
           <Select
             value={relationType || "all"}
@@ -381,7 +381,7 @@ export function RelationsTab() {
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-full sm:w-[160px]">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
@@ -395,7 +395,7 @@ export function RelationsTab() {
           </Select>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 w-[calc(50%-6px)] sm:w-auto">
           <Label className="text-xs text-muted-foreground">Created by</Label>
           <Select
             value={createdBy || "all"}
@@ -404,7 +404,7 @@ export function RelationsTab() {
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue placeholder="All creators" />
             </SelectTrigger>
             <SelectContent>
@@ -418,7 +418,7 @@ export function RelationsTab() {
           </Select>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 w-full sm:w-auto">
           <Label className="text-xs text-muted-foreground">Memory ID</Label>
           <Input
             placeholder="Filter by UUID..."
@@ -427,7 +427,7 @@ export function RelationsTab() {
               setMemoryId(e.target.value);
               setPage(1);
             }}
-            className="w-[260px]"
+            className="w-full sm:w-[260px]"
           />
         </div>
 
@@ -438,7 +438,7 @@ export function RelationsTab() {
           </Button>
         )}
 
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
           {orphanResult !== null && (
             <span className="text-sm text-muted-foreground">
               {orphanResult === 0

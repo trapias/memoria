@@ -182,14 +182,14 @@ export function ProjectsTab() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Projects</h2>
         <div className="flex items-center gap-3">
           <Select
             value={selectedClientId ?? "all"}
             onValueChange={handleClientFilterChange}
           >
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-[160px] sm:w-[200px]">
               <SelectValue placeholder="Filter by client" />
             </SelectTrigger>
             <SelectContent>
@@ -219,16 +219,16 @@ export function ProjectsTab() {
           No projects found.
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-lg overflow-x-auto">
+          <table className="w-full text-sm min-w-[500px]">
             <thead>
               <tr className="border-b bg-muted/50">
                 <SortableHeader label="Name" field="name" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
                 <SortableHeader label="Client" field="client_name" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
-                <SortableHeader label="Repo" field="repo" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Repo" field="repo" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left hidden md:table-cell" />
                 <SortableHeader label="Sessions" field="session_count" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
                 <SortableHeader label="Total Hours" field="total_minutes" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
-                <SortableHeader label="Last Activity" field="last_activity" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Last Activity" field="last_activity" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left hidden md:table-cell" />
                 <th className="p-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
@@ -242,7 +242,7 @@ export function ProjectsTab() {
                   <td className="px-4 py-3 text-muted-foreground">
                     {project.client_name ?? "\u2014"}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 hidden md:table-cell">
                     {project.repo ? (
                       <a
                         href={`https://github.com/${project.repo}`}
@@ -263,7 +263,7 @@ export function ProjectsTab() {
                   <td className="px-4 py-3 text-right tabular-nums">
                     {formatDuration(project.total_minutes)}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
                     {project.last_activity
                       ? formatDate(project.last_activity)
                       : "\u2014"}

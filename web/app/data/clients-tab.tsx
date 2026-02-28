@@ -191,15 +191,15 @@ export function ClientsTab() {
 
       {/* Table */}
       {sortedClients.length > 0 ? (
-        <div className="rounded-md border">
-          <table className="w-full text-sm">
+        <div className="rounded-md border overflow-x-auto">
+          <table className="w-full text-sm min-w-[500px]">
             <thead>
               <tr className="border-b bg-muted/50">
                 <SortableHeader label="Name" field="name" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
-                <SortableHeader label="Projects" field="project_count" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Projects" field="project_count" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right hidden md:table-cell" />
                 <SortableHeader label="Sessions" field="session_count" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
                 <SortableHeader label="Total Hours" field="total_minutes" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-right" />
-                <SortableHeader label="Last Activity" field="last_activity" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left" />
+                <SortableHeader label="Last Activity" field="last_activity" currentField={sortField} currentDir={sortDir} onSort={handleSort} className="text-left hidden md:table-cell" />
                 <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
@@ -210,7 +210,7 @@ export function ClientsTab() {
                   className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
                 >
                   <td className="px-4 py-3 font-medium">{client.name}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td className="px-4 py-3 text-right tabular-nums hidden md:table-cell">
                     {client.project_count}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
@@ -219,7 +219,7 @@ export function ClientsTab() {
                   <td className="px-4 py-3 text-right tabular-nums">
                     {formatDuration(client.total_minutes)}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
                     {client.last_activity
                       ? formatDate(client.last_activity)
                       : "\u2014"}

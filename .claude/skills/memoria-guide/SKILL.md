@@ -12,6 +12,8 @@ Persistent memory system for Claude. Uses vector embeddings for semantic search.
 
 **Memory**: `memoria_store`, `memoria_recall`, `memoria_search`, `memoria_update`, `memoria_delete`, `memoria_stats`, `memoria_set_context`
 
+**AI-Powered**: `memoria_reflect` (LLM reasoning over memories), `memoria_observe` (cluster detection & insight generation)
+
 **Maintenance**: `memoria_export`, `memoria_import`, `memoria_consolidate`
 
 **Knowledge Graph** (requires PostgreSQL): `memoria_link`, `memoria_unlink`, `memoria_related`, `memoria_path`, `memoria_suggest_links`
@@ -45,6 +47,11 @@ memoria_store(content="Decision: Use PostgreSQL for ACID requirements in payment
 memoria_recall(query="database issues", text_match="PostgreSQL", limit=5)
 ```
 
+**Hybrid recall** (semantic + keyword + graph fusion):
+```
+memoria_recall(query="auth architecture", hybrid=true)
+```
+
 **Search with filters**:
 ```
 memoria_search(query="auth", tags=["security"], memory_type="semantic", importance_min=0.7, sort_by="date")
@@ -58,6 +65,22 @@ memoria_link(source_id="<solution_id>", target_id="<problem_id>", relation_type=
 ## Relation Types
 
 `causes`, `fixes`, `supports`, `opposes`, `follows`, `supersedes`, `derives`, `part_of`, `related`
+
+## AI-Powered Tools (require Ollama)
+
+**Reflect** — LLM reasons over retrieved memories:
+```
+memoria_reflect(query="auth decisions", style="timeline", depth="thorough")
+```
+Styles: `synthesis` (summary), `timeline` (chronological), `comparison` (contrast), `analysis` (patterns). Depth: `quick` (5), `thorough` (15), `deep` (30).
+
+**Observe** — clusters similar memories and generates insights (dry-run by default):
+```
+memoria_observe(memory_type="semantic", dry_run=true, similarity_threshold=0.75, min_cluster_size=3)
+```
+Set `dry_run=false` to store generated observations as new memories.
+
+Both accept optional `llm_model` to override `MEMORIA_LLM_MODEL`.
 
 ## Session Workflow
 
