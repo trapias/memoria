@@ -551,7 +551,8 @@ class QdrantStore:
             if key == "__text_match":
                 # Split into words and create AND conditions for each word
                 # This ensures all words must be present (AND logic)
-                words = value.split()
+                # Lowercase for case-insensitive matching
+                words = value.lower().split()
                 for word in words:
                     word = word.strip()
                     if word:

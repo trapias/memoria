@@ -49,7 +49,7 @@ export default function MemoriesPage() {
     query: (!isIdSearch && searchQuery) || undefined,
     created_after: createdAfter || undefined,
     created_before: createdBefore || undefined,
-    sort_by: sortBy as "created_at" | "updated_at" | "importance",
+    sort_by: sortBy as "created_at" | "updated_at" | "importance" | "relevance",
     sort_order: sortOrder as "asc" | "desc",
     limit,
     offset,
@@ -164,7 +164,13 @@ export default function MemoriesPage() {
         <CardContent className="pt-6">
           <MemoryFilters
             searchQuery={searchQuery}
-            onSearchChange={(q) => { setSearchQuery(q); setOffset(0); }}
+            onSearchChange={(q) => {
+              setSearchQuery(q);
+              setOffset(0);
+              // Auto-switch to relevance sort when searching, back to created_at when clearing
+              if (q && sortBy === "created_at") setSortBy("relevance");
+              if (!q && sortBy === "relevance") setSortBy("created_at");
+            }}
             memoryType={memoryType}
             onMemoryTypeChange={(t) => { setMemoryType(t); setOffset(0); }}
             selectedTags={selectedTags}

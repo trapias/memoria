@@ -1,5 +1,5 @@
 ---
-updated: 2026-02-28 16:37:12
+updated: 2026-03-03 10:45:00
 ---
 
 # Changelog
@@ -8,6 +8,19 @@ All notable changes to MCP Memoria are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.8.2] - 2026-03-03
+
+### Fixed
+- Web UI memory search now combines semantic + keyword filtering for precise results
+- Search results sorted by relevance (score) instead of date when a query is active
+- Case-insensitive keyword matching in MatchText queries
+- Lowered vector score threshold when keyword filter is active to prevent discarding exact matches
+
+### Added
+- "Relevance" sort option in Memory Browser dropdown
+- `score` field in memory search API responses
+- Auto-switch to relevance sorting when typing a search query
 
 ## [1.8.1] - 2026-02-28
 

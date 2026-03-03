@@ -280,6 +280,12 @@ class MemoryManager:
             filters = dict(filters) if filters else {}
             filters["__text_match"] = text_match
 
+        # Lower score threshold when keyword filter is active: relevance
+        # is already ensured by text matching, so allow lower vector scores
+        has_text_filter = "__text_match" in (filters or {})
+        if has_text_filter and min_score > 0.1:
+            min_score = 0.1
+
         # Hybrid multi-strategy recall with RRF
         if hybrid:
             multi = MultiRecall(
@@ -421,10 +427,14 @@ class MemoryManager:
         if query:
             # Semantic search
             types = [MemoryType(memory_type)] if memory_type else None
+            # When text_match is active, lower the vector score threshold since
+            # relevance is already ensured by the keyword filter
+            effective_min_score = 0.1 if text_match else None
             return await self.recall(
                 query=query,
                 memory_types=types,
                 limit=limit,
+                min_score=effective_min_score,
                 filters=filters if filters else None,
                 text_match=None,  # already in filters
             )

@@ -32,6 +32,7 @@ class MemoryResponse(BaseModel):
     updated_at: str
     has_relations: Optional[bool] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    score: Optional[float] = None
 
 
 class MemoryListResponse(BaseModel):
@@ -90,7 +91,7 @@ async def list_memories(
         created_before: Filter memories created before this date (ISO format, e.g. 2026-12-31)
         limit: Max results per page (default 20)
         offset: Pagination offset
-        sort_by: Sort field (created_at, updated_at, importance)
+        sort_by: Sort field (created_at, updated_at, importance, relevance)
         sort_order: Sort direction (asc, desc)
     """
     qdrant_store = request.app.state.qdrant_store
@@ -107,17 +108,38 @@ async def list_memories(
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
 
     all_memories: List[MemoryResponse] = []
+    effective_sort = sort_by  # May be overridden to "relevance" when searching
 
     try:
         # If we have a semantic query, use search
         if query:
+            # When searching, default to relevance sorting unless user explicitly chose another
+            effective_sort = sort_by if sort_by != "created_at" else "relevance"
+
+            # Combine semantic search with keyword filtering for precision.
+            # Use query as text_match too (unless user provided explicit text_match).
+            # Falls back to pure semantic search if keyword filter yields no results.
+            effective_text_match = text_match if text_match else query
+            fetch_limit = limit + offset + 20
+
             results = await memory_manager.search(
                 query=query,
                 memory_type=memory_type,
                 tags=tag_list,
-                limit=limit + offset + 100,  # Get extra for filtering
-                text_match=text_match,
+                limit=fetch_limit,
+                text_match=effective_text_match,
             )
+
+            # Fallback: if keyword filter was too strict, retry with pure semantic search
+            if not results and effective_text_match and not text_match:
+                results = await memory_manager.search(
+                    query=query,
+                    memory_type=memory_type,
+                    tags=tag_list,
+                    limit=fetch_limit,
+                    text_match=None,
+                )
+
             for r in results:
                 m = r.memory  # RecallResult contains memory: MemoryItem
                 all_memories.append(MemoryResponse(
@@ -130,6 +152,7 @@ async def list_memories(
                     updated_at=m.updated_at.isoformat() if hasattr(m.updated_at, 'isoformat') else str(m.updated_at),
                     has_relations=False,  # Would need separate graph query
                     metadata=m.metadata,
+                    score=r.score,
                 ))
         else:
             # Scroll through collections for list view
@@ -185,10 +208,15 @@ async def list_memories(
                     continue
 
         # Sort results
+        # Use effective_sort (relevance-aware) when searching, otherwise use sort_by
+        active_sort = effective_sort if query else sort_by
         reverse = sort_order == "desc"
-        if sort_by == "importance":
+        if active_sort == "relevance":
+            # Sort by score descending (highest relevance first), regardless of sort_order
+            all_memories.sort(key=lambda m: m.score or 0.0, reverse=True)
+        elif active_sort == "importance":
             all_memories.sort(key=lambda m: m.importance, reverse=reverse)
-        elif sort_by == "updated_at":
+        elif active_sort == "updated_at":
             all_memories.sort(key=lambda m: m.updated_at, reverse=reverse)
         else:  # created_at
             all_memories.sort(key=lambda m: m.created_at, reverse=reverse)

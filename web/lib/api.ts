@@ -247,6 +247,7 @@ export interface Memory {
   updated_at: string;
   has_relations?: boolean;
   metadata: Record<string, unknown>;
+  score?: number;
 }
 
 export interface MemoryListResponse {
@@ -266,7 +267,7 @@ export interface ListMemoriesParams {
   created_before?: string;
   limit?: number;
   offset?: number;
-  sort_by?: "created_at" | "updated_at" | "importance";
+  sort_by?: "created_at" | "updated_at" | "importance" | "relevance";
   sort_order?: "asc" | "desc";
 }
 

@@ -134,6 +134,7 @@ export function MemoryFilters({
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="relevance">Relevance</SelectItem>
             <SelectItem value="created_at">Created</SelectItem>
             <SelectItem value="updated_at">Updated</SelectItem>
             <SelectItem value="importance">Importance</SelectItem>
