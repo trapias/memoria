@@ -387,6 +387,7 @@ Browser interface at [localhost:3000](http://localhost:3000) with:
 |Tool                 |Description                                                          |
 |---------------------|---------------------------------------------------------------------|
 |`memoria_store`      |Store new memories                                                   |
+|`memoria_get`        |Get a single memory by its exact UUID                                |
 |`memoria_recall`     |Recall memories by semantic similarity (supports `text_match` keyword filter)|
 |`memoria_search`     |Advanced search with filters (supports `text_match` keyword filter)  |
 |`memoria_update`     |Update existing memories                                             |

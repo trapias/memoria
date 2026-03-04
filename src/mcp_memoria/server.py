@@ -113,6 +113,20 @@ class MemoriaServer:
                     },
                 ),
                 Tool(
+                    name="memoria_get",
+                    description="Get a single memory by its exact ID. Use when you know the memory UUID and want to retrieve its full content.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "memory_id": {
+                                "type": "string",
+                                "description": "The UUID of the memory to retrieve",
+                            },
+                        },
+                        "required": ["memory_id"],
+                    },
+                ),
+                Tool(
                     name="memoria_recall",
                     description="Recall memories similar to a query. Use to retrieve relevant past information, decisions, or context.",
                     inputSchema={
@@ -777,6 +791,27 @@ class MemoriaServer:
                 metadata=metadata if metadata else None,
             )
             return f"Stored memory: {memory.id} ({memory.memory_type.value})"
+
+        elif name == "memoria_get":
+            memory_id = args["memory_id"]
+            # Try each memory type until we find it
+            for memory_type in MemoryType:
+                m = await self.memory_manager.get(memory_id=memory_id, memory_type=memory_type)
+                if m:
+                    tags = ", ".join(m.tags) if m.tags else "none"
+                    metadata_str = ""
+                    if m.metadata:
+                        metadata_str = f"   Metadata: {m.metadata}\n"
+                    return (
+                        f"[{m.memory_type.value}] importance: {m.importance:.2f}\n"
+                        f"   ID: {m.id}\n"
+                        f"   Content: {m.content}\n"
+                        f"   Tags: {tags}\n"
+                        f"{metadata_str}"
+                        f"   Created: {m.created_at.isoformat() if hasattr(m.created_at, 'isoformat') else str(m.created_at)}\n"
+                        f"   Updated: {m.updated_at.isoformat() if hasattr(m.updated_at, 'isoformat') else str(m.updated_at)}"
+                    )
+            return f"Memory not found: {memory_id}"
 
         elif name == "memoria_recall":
             # Parse temporal date filters
