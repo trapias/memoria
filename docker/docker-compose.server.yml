@@ -81,6 +81,7 @@ services:
       - MEMORIA_DB_MIGRATE=true
       - MEMORIA_OLLAMA_HOST=http://host.docker.internal:11434
       - MEMORIA_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - MEMORIA_LLM_MODEL=${LLM_MODEL:-llama3.2}
       - API_PORT=8765
       - CORS_ORIGINS=*
       # NEXT_PUBLIC_API_URL is auto-detected from browser hostname at runtime
