@@ -3,8 +3,8 @@ name: github-issue
 description: >
   Gestione completa GitHub Issues con work time tracking.
   This skill should be used when the user asks to "work on issue",
-  "start issue", "close issue", "comment issue", or manage GitHub issues
-  with time tracking.
+  "start issue", "stop issue", "close issue", "comment issue", or manage
+  GitHub issues with time tracking.
 user_invocable: true
 ---
 
@@ -119,6 +119,41 @@ When committing changes related to an issue:
   - `feat: add user export endpoint (#42)`
   - `fix: resolve login timeout (#15)`
   - `docs: update API documentation (#8)`
+
+## Phase: STOP
+
+Invocation: `/github-issue stop <N>` where `<N>` is the issue number.
+
+Use this phase to **pause work** on an issue without closing it (e.g., switching to another task, end of day, blocked).
+
+Execute these steps in order:
+
+1. **Stop work time tracking**
+   ```
+   memoria_work_stop(notes="Paused issue #<N>")
+   ```
+   Record the duration returned (e.g., `45 minutes`).
+
+2. **Read current Work Time from the project** (for cumulative sum)
+   - Fetch the item's current field values
+   - If `Work Time (min)` already has a value, note it for summing
+
+3. **Update Work Time fields** on the project (cumulative)
+   - Add the session duration to any existing value
+   - TEXT field (`Work Time`): format `HH:mm` (e.g., `0:35`)
+   - NUMBER field (`Work Time (min)`): total minutes (e.g., `35`)
+   ```bash
+   gh project item-edit --project-id <PROJECT_ID> --id <ITEM_ID> --field-id <WORKTIME_TEXT_FIELD_ID> --text "0:35"
+   gh project item-edit --project-id <PROJECT_ID> --id <ITEM_ID> --field-id <WORKTIME_NUM_FIELD_ID> --number 35
+   ```
+
+4. **Keep Status as In Progress** — do NOT change the project status (the issue is still open and assigned).
+
+5. **Do NOT close the issue** and do NOT post the closing comment.
+
+6. **Commit and push** any uncommitted changes (if any), referencing the issue number.
+
+> **Resuming later:** Use `/github-issue start <N>` again. The START phase will detect the issue is already assigned and In Progress, and will start a new work tracking session. Work Time accumulates across sessions.
 
 ## Phase: CLOSE
 
