@@ -97,3 +97,6 @@ CLAUDE.md
 docs/
 Testing/
 /.playwright-mcp
+
+# Local MCP client config (may contain API tokens — never commit)
+.mcp.json
