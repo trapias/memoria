@@ -621,6 +621,24 @@ All settings via environment variables with the `MEMORIA_` prefix:
 |`MEMORIA_HTTP_HOST`            |`0.0.0.0`               |HTTP host to bind to                              |
 |`MEMORIA_SKIP_UPDATE_CHECK`    |`false`                 |Disable startup update check                      |
 
+### Inference backend (Ollama / MLX)
+
+Embeddings and chat (used by `reflect`/`observe`) can each run on **Ollama** (default) or on an **OpenAI-compatible local server** such as [omlx](https://github.com/) / `mlx_lm.server` — useful on Apple Silicon. The MLX backend is a plain HTTP client (no `mlx` libraries are imported), so it only activates when explicitly selected.
+
+|Variable                          |Default                       |Description                                          |
+|----------------------------------|------------------------------|-----------------------------------------------------|
+|`MEMORIA_EMBEDDING_BACKEND`       |`ollama`                      |Embedding backend: `ollama` or `mlx`                 |
+|`MEMORIA_LLM_BACKEND`             |`ollama`                      |Chat backend: `ollama` or `mlx`                      |
+|`MEMORIA_MLX_HOST`                |`http://127.0.0.1:8000/v1`    |OpenAI-compatible server URL (must end with `/v1`)   |
+|`MEMORIA_MLX_API_KEY`             |—                             |Bearer API key for the MLX server                    |
+|`MEMORIA_MLX_EMBEDDING_MODEL`     |`multilingual-e5-base-mlx`    |Embedding model id on the MLX server                 |
+|`MEMORIA_MLX_EMBEDDING_DIMENSIONS`|`768`                         |Embedding dimensions for the MLX model               |
+|`MEMORIA_MLX_LLM_MODEL`           |`mlx-community--Llama-3.2-3B-Instruct-4bit`|Chat model id on the MLX server         |
+
+> **MLX requires Apple Silicon** and is not available inside Docker/Linux or on Windows — though a container *can* reach an omlx server running on the host (e.g. `http://host.docker.internal:8000/v1`).
+>
+> **Switching the embedding model invalidates existing vectors.** Different models produce incompatible vector spaces, so existing memories must be re-embedded after changing `MEMORIA_EMBEDDING_MODEL`/backend. The two backends can be mixed (e.g. embeddings on MLX, chat on Ollama).
+
 ### Advanced tuning
 
 |Variable                            |Default|Description                             |

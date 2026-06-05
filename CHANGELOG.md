@@ -1,5 +1,5 @@
 ---
-updated: 2026-03-04 16:00:00
+updated: 2026-06-05 15:00:00
 ---
 
 # Changelog
@@ -8,6 +8,19 @@ All notable changes to MCP Memoria are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.9.0] - 2026-06-05
+
+### Added
+- Selectable inference backend for embeddings and chat: Ollama (default) or an OpenAI-compatible local server such as omlx / `mlx_lm.server` (Apple Silicon)
+- `MLXEmbedder` — OpenAI-compatible client mirroring `OllamaEmbedder` (no `mlx` libraries imported; stays importable on Linux/Windows)
+- `embeddings.build_embedder` factory + `CompositeInference` for per-capability backend selection (`MEMORIA_EMBEDDING_BACKEND` / `MEMORIA_LLM_BACKEND`)
+- Settings: `embedding_backend`, `llm_backend`, `mlx_host`, `mlx_api_key`, `mlx_embedding_model`, `mlx_embedding_dimensions`, `mlx_llm_model`
+- `MODEL_CONFIGS` entries for `multilingual-e5-base-mlx` / `multilingual-e5-large-mlx` with the `query:`/`passage:` prefixes
+
+### Notes
+- Default behaviour is unchanged: both backends default to Ollama
+- Switching the embedding model/backend invalidates existing vectors — re-embed stored memories after changing it
 
 ## [1.8.3] - 2026-03-04
 
