@@ -58,6 +58,20 @@ MODEL_CONFIGS = {
         "query_prefix": "",
         "document_prefix": "",
     },
+    # MLX / OpenAI-compatible models (served via omlx). e5 requires the
+    # "query:" / "passage:" prefixes for correct retrieval behaviour.
+    "multilingual-e5-base-mlx": {
+        "dimensions": 768,
+        "max_context": 512,
+        "query_prefix": "query: ",
+        "document_prefix": "passage: ",
+    },
+    "multilingual-e5-large-mlx": {
+        "dimensions": 1024,
+        "max_context": 512,
+        "query_prefix": "query: ",
+        "document_prefix": "passage: ",
+    },
 }
 
 

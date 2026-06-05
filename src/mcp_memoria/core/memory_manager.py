@@ -19,7 +19,7 @@ from mcp_memoria.core.multi_recall import MultiRecall
 from mcp_memoria.core.working_memory import WorkingMemory
 from mcp_memoria.embeddings.chunking import ChunkingConfig, TextChunker
 from mcp_memoria.embeddings.embedding_cache import EmbeddingCache
-from mcp_memoria.embeddings.ollama_client import OllamaEmbedder
+from mcp_memoria.embeddings.factory import build_embedder
 from mcp_memoria.storage.backup import MemoryBackup
 from mcp_memoria.storage.collections import CollectionManager, MemoryCollection
 from mcp_memoria.storage.qdrant_store import QdrantStore
@@ -89,12 +89,7 @@ class MemoryManager:
         self.cache = (
             EmbeddingCache(self.settings.cache_path) if self.settings.cache_enabled else None
         )
-        self.embedder = OllamaEmbedder(
-            host=self.settings.ollama_host,
-            model=self.settings.embedding_model,
-            cache=self.cache,
-            llm_model=self.settings.llm_model,
-        )
+        self.embedder = build_embedder(self.settings, self.cache)
 
     def _init_working_memory(self) -> None:
         """Initialize working memory."""

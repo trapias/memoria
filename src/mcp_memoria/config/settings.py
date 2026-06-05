@@ -50,6 +50,41 @@ class Settings(BaseSettings):
         description="Ollama model for LLM generation (used by reflect and observe tools)",
     )
 
+    # Inference backend selection (per-capability).
+    # "ollama" = local Ollama server (default, cross-platform).
+    # "mlx"    = OpenAI-compatible local server (e.g. omlx / mlx_lm.server,
+    #            Apple Silicon only). Configured via the mlx_* settings below.
+    embedding_backend: Literal["ollama", "mlx"] = Field(
+        default="ollama",
+        description="Backend for embeddings: 'ollama' or 'mlx' (OpenAI-compatible)",
+    )
+    llm_backend: Literal["ollama", "mlx"] = Field(
+        default="ollama",
+        description="Backend for chat/LLM generation: 'ollama' or 'mlx'",
+    )
+
+    # MLX / OpenAI-compatible server settings (used when *_backend == 'mlx')
+    mlx_host: str = Field(
+        default="http://127.0.0.1:8000/v1",
+        description="Base URL of the OpenAI-compatible server (must end with /v1)",
+    )
+    mlx_api_key: str = Field(
+        default="",
+        description="Bearer API key for the MLX/OpenAI-compatible server",
+    )
+    mlx_embedding_model: str = Field(
+        default="multilingual-e5-base-mlx",
+        description="Embedding model id on the MLX server",
+    )
+    mlx_embedding_dimensions: int = Field(
+        default=768,
+        description="Embedding dimensions for the MLX embedding model",
+    )
+    mlx_llm_model: str = Field(
+        default="mlx-community--Llama-3.2-3B-Instruct-4bit",
+        description="Chat model id on the MLX server (reflect/observe)",
+    )
+
     # Cache settings
     cache_path: Path = Field(
         default=Path.home() / ".mcp-memoria" / "cache",
