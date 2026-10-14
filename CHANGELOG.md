@@ -9,6 +9,14 @@ All notable changes to MCP Memoria are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Work time defaults to 5 active/paused parallel sessions. Starting beyond 3 returns the open-session list and requires explicit user confirmation via `confirm_parallel=true`; the configured maximum still applies.
+
+### Fixed
+- Session lookup distinguishes invalid identifiers and missing records from database failures, preserving unexpected error details.
+
 ## [1.9.0] - 2026-06-05
 
 ### Added

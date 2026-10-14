@@ -2,13 +2,12 @@
 
 import asyncio
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 from mcp.server.sse import SseServerTransport
+from mcp.server.stdio import stdio_server
 from mcp.types import (
     Resource,
     TextContent,
@@ -19,15 +18,15 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from mcp_memoria.config.settings import Settings, get_settings
+from mcp_memoria.core.graph_types import RelationType
 from mcp_memoria.core.memory_manager import MemoryManager
 from mcp_memoria.core.memory_types import MemoryType
-from mcp_memoria.core.graph_types import RelationType, RelationDirection
 from mcp_memoria.utils.datetime_utils import parse_datetime, parse_temporal_query
 
 # Check PostgreSQL availability for graph and work tracking features
 try:
-    from mcp_memoria.db import ASYNCPG_AVAILABLE, Database
     from mcp_memoria.core.graph_manager import GraphManager
+    from mcp_memoria.db import ASYNCPG_AVAILABLE, Database
     from mcp_memoria.work import WorkTracker
 except ImportError:
     ASYNCPG_AVAILABLE = False
@@ -53,7 +52,7 @@ class MemoriaServer:
 
         # Initialize GraphManager and WorkTracker if PostgreSQL is available
         self.graph_manager: GraphManager | None = None
-        self._work_tracker: "WorkTracker | None" = None
+        self._work_tracker: WorkTracker | None = None
         self._db: Database | None = None
         if ASYNCPG_AVAILABLE and self.settings.database_url:
             logger.info("PostgreSQL available, graph and work tracking features enabled")
@@ -600,7 +599,7 @@ class MemoriaServer:
                 # Work tracking tools
                 Tool(
                     name="memoria_work_start",
-                    description="Start tracking a work session. Supports multiple parallel sessions (configurable limit). Requires PostgreSQL.",
+                    description="Start tracking a work session. Default limit: 5 active/paused sessions. Before starting a fourth or fifth session, show the open sessions and ask the user for confirmation. Requires PostgreSQL.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -633,6 +632,11 @@ class MemoriaServer:
                             "branch": {
                                 "type": "string",
                                 "description": "Git branch name (optional)",
+                            },
+                            "confirm_parallel": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Set true only after the user explicitly confirms this start after seeing the already open sessions. Required to open more than 3 parallel sessions; never bypasses the configured maximum.",
                             },
                         },
                         "required": ["description"],
@@ -1086,7 +1090,7 @@ class MemoriaServer:
             gm = await self._get_graph_manager()
             if not gm:
                 return "Error: Graph features require PostgreSQL. Set MEMORIA_DATABASE_URL."
-            relation = await gm.add_relation(
+            await gm.add_relation(
                 source_id=args["source_id"],
                 target_id=args["target_id"],
                 relation_type=RelationType(args["relation_type"]),
@@ -1168,16 +1172,24 @@ class MemoriaServer:
                 issue_number=args.get("issue"),
                 pr_number=args.get("pr"),
                 branch=args.get("branch"),
+                confirm_parallel=args.get("confirm_parallel", False),
             )
             if "error" in result:
-                lines = [f"Error: {result['error']}"]
+                prefix = "Confirmation required" if result.get("requires_confirmation") else "Error"
+                lines = [f"{prefix}: {result['error']}"]
                 if result.get("active_sessions"):
                     lines.append("Current sessions:")
                     for s in result["active_sessions"]:
                         lines.append(
-                            f"  - {s['session_id'][:8]}... \"{s['description'][:50]}\""
+                            f"  - {s['session_id']} \"{s['description']}\""
                             f" ({s['elapsed_minutes']}m, {s['status']})"
                         )
+                if result.get("requires_confirmation"):
+                    lines.append(
+                        "No session has been started. Show these sessions to the user and ask "
+                        "for confirmation. Only after explicit consent, retry the same request "
+                        "with confirm_parallel=true."
+                    )
                 return "\n".join(lines)
             lines = [
                 f"Started work session: {result['session_id']}",

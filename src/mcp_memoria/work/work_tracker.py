@@ -18,6 +18,7 @@ from mcp_memoria.db import (
     ProjectRepository,
     WorkSessionRepository,
 )
+from mcp_memoria.db.exceptions import RecordNotFoundError
 from mcp_memoria.db.models import (
     SessionCategory,
     SessionStatus,
@@ -56,10 +57,12 @@ class WorkTracker:
         issue_number: int | None = None,
         pr_number: int | None = None,
         branch: str | None = None,
+        confirm_parallel: bool = False,
     ) -> dict[str, Any]:
         """Start a new work session.
 
         Allows parallel sessions up to the configured maximum.
+        Requires explicit user confirmation before opening more than three sessions.
         Returns warnings about long-running or duplicate-project sessions.
         """
         # Check parallel session limit
@@ -71,6 +74,18 @@ class WorkTracker:
                     f"Maximum parallel sessions reached ({self._max_parallel}). "
                     f"Stop or complete a session before starting a new one."
                 ),
+                "active_sessions": self._format_session_list(all_active),
+            }
+
+        # Require consent before creating any session, client or project.
+        if active_count >= 3 and confirm_parallel is not True:
+            all_active = await self._sessions.get_all_active()
+            return {
+                "error": (
+                    f"There are already {active_count} active/paused work sessions. "
+                    "Ask the user to confirm starting another parallel session."
+                ),
+                "requires_confirmation": True,
                 "active_sessions": self._format_session_list(all_active),
             }
 
@@ -491,9 +506,16 @@ class WorkTracker:
         """
         if session_id:
             try:
-                session = await self._sessions.get(UUID(session_id))
-            except Exception:
+                parsed_id = UUID(session_id)
+            except (ValueError, TypeError):
+                return {"error": f"Invalid session id format: {session_id!r}"}
+            try:
+                session = await self._sessions.get(parsed_id)
+            except RecordNotFoundError:
                 return {"error": f"Session {session_id} not found"}
+            # Any other exception (validation, DB error, etc.) propagates with
+            # its real traceback — masking it as "not found" caused a 90-min
+            # debugging session in production (memoria-team issue #1).
             if session.status not in statuses:
                 status_names = "/".join(s.value for s in statuses)
                 return {

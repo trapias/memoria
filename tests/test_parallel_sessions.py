@@ -4,14 +4,15 @@ Tests the hybrid disambiguation logic, warnings system,
 and parallel session limit enforcement in WorkTracker.
 """
 
-import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import pytest
+
+from mcp_memoria.db.exceptions import RecordNotFoundError
 from mcp_memoria.db.models import SessionCategory, SessionStatus, WorkSession
 from mcp_memoria.work.work_tracker import WorkTracker
-
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -29,13 +30,13 @@ def make_session(
         description=description,
         category=SessionCategory.CODING,
         status=status,
-        start_time=datetime.now(timezone.utc) - timedelta(hours=hours_ago),
+        start_time=datetime.now(UTC) - timedelta(hours=hours_ago),
         project_id=project_id,
         client_id=client_id,
     )
 
 
-def make_tracker(max_parallel: int = 3, warning_hours: float = 8.0) -> WorkTracker:
+def make_tracker(max_parallel: int = 5, warning_hours: float = 8.0) -> WorkTracker:
     """Create a WorkTracker with mocked dependencies."""
     db = MagicMock()
     settings = MagicMock()
@@ -106,7 +107,7 @@ class TestResolveSession:
     @pytest.mark.asyncio
     async def test_explicit_session_id_not_found_returns_error(self):
         tracker = make_tracker()
-        tracker._sessions.get.side_effect = Exception("not found")
+        tracker._sessions.get.side_effect = RecordNotFoundError("work_sessions", "missing")
         result = await tracker._resolve_session(str(uuid4()), [SessionStatus.ACTIVE])
         assert isinstance(result, dict)
         assert "not found" in result["error"].lower()
@@ -156,6 +157,83 @@ class TestResolveSession:
 
 class TestStart:
     """Tests for start() with parallel session support."""
+
+    def test_default_limit_is_five(self, monkeypatch):
+        from mcp_memoria.config.settings import Settings
+
+        monkeypatch.delenv("MEMORIA_WORK_MAX_PARALLEL_SESSIONS", raising=False)
+        tracker = WorkTracker(MagicMock(), settings=Settings(_env_file=None))
+        assert tracker._max_parallel == 5
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("existing_count", [0, 1, 2])
+    async def test_first_three_sessions_do_not_require_confirmation(self, existing_count):
+        tracker = make_tracker()
+        existing = [make_session(f"Task {i}") for i in range(existing_count)]
+        new_session = make_session("Next task")
+        tracker._sessions.count_active.return_value = existing_count
+        tracker._sessions.get_all_active.return_value = existing + [new_session]
+        tracker._sessions.create.return_value = new_session
+
+        result = await tracker.start("Next task")
+
+        assert "error" not in result
+        tracker._sessions.create.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("existing_count", [3, 4])
+    @pytest.mark.parametrize("confirmation", [False, None, "true", 1])
+    async def test_above_three_requires_explicit_confirmation(self, existing_count, confirmation):
+        tracker = make_tracker()
+        existing = [make_session(f"Task {i}") for i in range(existing_count)]
+        existing[-1].status = SessionStatus.PAUSED
+        tracker._sessions.count_active.return_value = existing_count
+        tracker._sessions.get_all_active.return_value = existing
+
+        result = await tracker.start(
+            "Next task", client="New client", project="New project",
+            confirm_parallel=confirmation,
+        )
+
+        assert result["requires_confirmation"] is True
+        assert {s["session_id"] for s in result["active_sessions"]} == {
+            str(s.id) for s in existing
+        }
+        assert result["active_sessions"][-1]["status"] == "paused"
+        tracker._sessions.create.assert_not_awaited()
+        tracker._clients.get_by_name.assert_not_awaited()
+        tracker._projects.get_by_name.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("existing_count", [3, 4])
+    async def test_fourth_and_fifth_can_start_after_confirmation(self, existing_count):
+        tracker = make_tracker()
+        existing = [make_session(f"Task {i}") for i in range(existing_count)]
+        new_session = make_session("Confirmed task")
+        tracker._sessions.count_active.return_value = existing_count
+        tracker._sessions.get_all_active.return_value = existing + [new_session]
+        tracker._sessions.create.return_value = new_session
+
+        result = await tracker.start("Confirmed task", confirm_parallel=True)
+
+        assert "error" not in result
+        assert result["parallel_sessions"] == existing_count + 1
+        tracker._sessions.create.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("confirmation", [False, True])
+    async def test_confirmation_never_bypasses_five_session_limit(self, confirmation):
+        tracker = make_tracker()
+        existing = [make_session(f"Task {i}") for i in range(5)]
+        tracker._sessions.count_active.return_value = 5
+        tracker._sessions.get_all_active.return_value = existing
+
+        result = await tracker.start("Sixth task", confirm_parallel=confirmation)
+
+        assert "Maximum parallel sessions reached (5)" in result["error"]
+        assert not result.get("requires_confirmation")
+        assert len(result["active_sessions"]) == 5
+        tracker._sessions.create.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_start_first_session(self):
@@ -209,7 +287,7 @@ class TestStart:
         tracker._clients.get_by_name.return_value = None
         tracker._projects.get_by_name.return_value = None
 
-        result = await tracker.start("Task 101")
+        result = await tracker.start("Task 101", confirm_parallel=True)
         assert "error" not in result
 
     @pytest.mark.asyncio
@@ -239,7 +317,7 @@ class TestStop:
         tracker = make_tracker()
         session = make_session()
         completed = make_session(status=SessionStatus.COMPLETED)
-        completed.end_time = datetime.now(timezone.utc)
+        completed.end_time = datetime.now(UTC)
         completed.duration_minutes = 60
 
         tracker._sessions.get_all_active.return_value = [session]
@@ -264,7 +342,7 @@ class TestStop:
         tracker = make_tracker()
         session = make_session()
         completed = make_session(status=SessionStatus.COMPLETED)
-        completed.end_time = datetime.now(timezone.utc)
+        completed.end_time = datetime.now(UTC)
         completed.duration_minutes = 30
 
         tracker._sessions.get.return_value = session

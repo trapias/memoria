@@ -179,7 +179,7 @@ class Settings(BaseSettings):
 
     # Work tracking settings
     work_max_parallel_sessions: int = Field(
-        default=3,
+        default=5,
         description="Maximum number of parallel active/paused work sessions (0 = unlimited)",
     )
     work_session_warning_hours: float = Field(

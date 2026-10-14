@@ -570,7 +570,8 @@ How much time did I spend on AuthService this month?
 ```
 
 Time tracking supports:
-- **Parallel sessions**: Run multiple sessions simultaneously (configurable limit, default 3)
+- **Parallel sessions**: Run up to 5 active/paused sessions by default (configurable limit)
+  - **Confirmation beyond 3**: Before opening a fourth or fifth session, `memoria_work_start` lists the already open sessions and asks the assistant to obtain your confirmation. After your explicit consent, the assistant retries with `confirm_parallel=true`. No session, client or project is created while confirmation is pending. Confirmation never overrides the configured maximum.
   - **Hybrid disambiguation**: With 1 session, everything works without `session_id` — fully transparent. With multiple sessions, the system asks you to specify which one
   - **Smart warnings**: Alerts for sessions open too long, duplicate sessions on the same project, and approaching the parallel limit
 - **Categories**: coding, review, meeting, support, research, documentation, devops
@@ -652,7 +653,7 @@ Embeddings and chat (used by `reflect`/`observe`) can each run on **Ollama** (de
 |`MEMORIA_DB_MIGRATE`                |`false`|Run database migrations on startup      |
 |`MEMORIA_DB_POOL_MIN`               |`2`    |Minimum database connection pool size   |
 |`MEMORIA_DB_POOL_MAX`               |`10`   |Maximum database connection pool size   |
-|`MEMORIA_WORK_MAX_PARALLEL_SESSIONS`|`3`    |Max parallel active/paused work sessions|
+|`MEMORIA_WORK_MAX_PARALLEL_SESSIONS`|`5`    |Max parallel active/paused work sessions (0 = unlimited; confirmation still required beyond 3)|
 |`MEMORIA_WORK_SESSION_WARNING_HOURS`|`8.0`  |Hours before a session triggers a forgotten-session warning|
 
 -----
