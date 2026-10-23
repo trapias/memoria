@@ -1001,14 +1001,28 @@ class MemoriaServer:
 
         elif name == "memoria_stats":
             stats = self.memory_manager.get_stats()
+            logical = await self.memory_manager.get_logical_counts()
 
+            total_logical = sum(c["memories"] for c in logical.values())
+            total_incomplete = sum(c["incomplete_groups"] for c in logical.values())
             output = [
-                f"Total memories: {stats['total_memories']}\n",
-                "\nCollections:",
+                f"Total memories: {total_logical}",
+                f"Total points: {stats['total_points']} (long memories are split into chunk points)",
             ]
+            if total_incomplete:
+                output.append(
+                    f"Incomplete groups (chunk 0 missing): {total_incomplete}"
+                )
+            output.append("\nCollections:")
             for name, info in stats["collections"].items():
                 if isinstance(info, dict) and "points_count" in info:
-                    output.append(f"  - {name}: {info['points_count']} memories")
+                    c = logical.get(name)
+                    if c:
+                        output.append(
+                            f"  - {name}: {c['memories']} memories ({c['points']} points)"
+                        )
+                    else:
+                        output.append(f"  - {name}: {info['points_count']} points")
                 else:
                     output.append(f"  - {name}: not initialized")
 

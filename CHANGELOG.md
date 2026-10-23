@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Work time defaults to 5 active/paused parallel sessions. Starting beyond 3 returns the open-session list and requires explicit user confirmation via `confirm_parallel=true`; the configured maximum still applies.
 
 ### Fixed
+- `memoria_consolidate` deleted only chunk 0 of a merged duplicate, leaving chunks 1..N orphaned: the memory stayed searchable but `get`/`update` by ID returned "not found". It now merges only memories whose full text is identical and deletes the whole logical memory; similar-but-different long memories are skipped instead of silently losing text. Provenance in `merged_from` records logical IDs and is appended, not overwritten.
+- `get` falls back to the surviving chunks when chunk 0 is missing; `delete`/`update` resolve a physical chunk ID to its parent and paginate past 1000 chunks.
+- `update` builds the new chunks and embeddings before touching stored data (a failed embedding no longer loses the memory) and drops only the points the new version no longer uses.
+- `memoria_stats` reported physical points as "memories". It now shows logical memories and points separately, plus groups with a missing chunk 0.
+- `scripts/repair_missing_chunk0.py` recreates the missing chunk 0 of already-damaged groups (dry run by default; repairs only groups it can reproduce exactly).
 - Session lookup distinguishes invalid identifiers and missing records from database failures, preserving unexpected error details.
 
 ## [1.9.0] - 2026-06-05

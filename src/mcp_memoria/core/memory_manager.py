@@ -506,6 +506,18 @@ class MemoryManager:
             chunk_0_id = _chunk_id(memory_id, 0)
             results = await self.vector_store.get(collection=memory_type.value, ids=[chunk_0_id])
 
+        if not results:
+            # Fallback: chunk 0 is missing (damaged group) but other chunks survive.
+            # Every chunk carries the full content, so the lowest surviving index is enough.
+            siblings = await self._scroll_all(memory_type.value, {"parent_id": memory_id})
+            if siblings:
+                logger.warning(
+                    f"Memory {memory_id} has no chunk 0 ({len(siblings)} chunks survive): "
+                    "serving it from the lowest surviving chunk"
+                )
+                siblings.sort(key=lambda r: r.payload.get("chunk_index", 0))
+                results = [siblings[0]]
+
         if results:
             try:
                 # Use parent_id as the memory ID for chunked memories
@@ -550,23 +562,10 @@ class MemoryManager:
             return None
 
         if content and content != existing.content:
-            # Content changed: delete all old chunks/points and re-store
-            await self._delete_memory_points(memory_id, memory_type.value)
+            # Content changed: build the new generation (chunking + embeddings) BEFORE
+            # touching stored data, so a failed embedding leaves the old memory intact.
+            old_point_ids = await self._get_memory_point_ids(memory_id, memory_type.value)
 
-            # Re-store with new content (preserving original metadata)
-            updated = await self.store(
-                content=content,
-                memory_type=memory_type,
-                tags=tags if tags is not None else existing.tags,
-                importance=importance if importance is not None else existing.importance,
-                metadata=metadata or existing.metadata,
-            )
-            # The new memory gets a new ID from store(), but we want to keep the original ID.
-            # So we delete the newly-created points and re-create them with the old ID.
-            new_id = updated.id
-            await self._delete_memory_points(new_id, memory_type.value)
-
-            # Re-create with original ID
             updated_memory = create_memory(
                 content=content,
                 memory_type=memory_type,
@@ -610,6 +609,7 @@ class MemoryManager:
                     collection=memory_type.value,
                     points=points,
                 )
+                new_point_ids = {point[2] for point in points}
             else:
                 emb = await self.embedder.embed(content, text_type="document")
                 payload = updated_memory.to_payload()
@@ -623,6 +623,13 @@ class MemoryManager:
                     payload=payload,
                     id=memory_id,
                 )
+                new_point_ids = {memory_id}
+
+            # The new generation is in place: drop only the points it no longer uses
+            # (chunks past the new count, or the old non-chunked/chunked representation).
+            stale_ids = [pid for pid in old_point_ids if pid not in new_point_ids]
+            if stale_ids:
+                await self.vector_store.delete(collection=memory_type.value, ids=stale_ids)
         else:
             # Metadata-only update: apply to all points for this memory
             update_payload: dict[str, Any] = {"updated_at": datetime.now().isoformat()}
@@ -803,32 +810,52 @@ class MemoryManager:
         else:
             return await self.backup.import_from_json(input_path, merge=merge)
 
+    async def _scroll_all(
+        self,
+        collection: str,
+        filter_conditions: dict[str, Any],
+        with_vectors: bool = False,
+    ) -> list[Any]:
+        """Scroll every point matching a filter, following pagination to the end."""
+        results: list[Any] = []
+        offset = None
+        while True:
+            batch, offset = await self.vector_store.scroll(
+                collection=collection,
+                limit=256,
+                offset=offset,
+                filter_conditions=filter_conditions,
+                with_vectors=with_vectors,
+            )
+            results.extend(batch)
+            if not offset:
+                return results
+
     async def _get_memory_point_ids(self, memory_id: str, collection: str) -> list[str]:
         """Find all Qdrant point IDs belonging to a logical memory.
 
-        Looks for both the direct ID and any chunks with matching parent_id.
+        ``memory_id`` may be the logical (parent) ID or the physical ID of any of its
+        chunks: a physical chunk ID is resolved to its parent first, so that deleting
+        or updating by chunk ID never leaves the rest of the group behind.
 
         Args:
-            memory_id: Logical memory ID
+            memory_id: Logical memory ID, or physical ID of one of its points
             collection: Collection name
 
         Returns:
             List of point IDs
         """
-        ids = []
+        ids: list[str] = []
+        logical_id = memory_id
 
-        # Check if direct ID exists
+        # Check if direct ID exists (non-chunked memory, or a physical chunk ID)
         direct = await self.vector_store.get(collection=collection, ids=[memory_id])
         if direct:
             ids.append(memory_id)
+            logical_id = direct[0].payload.get("parent_id", memory_id)
 
-        # Find chunks by parent_id
-        chunk_results, _ = await self.vector_store.scroll(
-            collection=collection,
-            limit=1000,
-            filter_conditions={"parent_id": memory_id},
-        )
-        for cr in chunk_results:
+        # Find every chunk by parent_id (paginated: groups can exceed one page)
+        for cr in await self._scroll_all(collection, {"parent_id": logical_id}):
             if cr.id not in ids:
                 ids.append(cr.id)
 
@@ -867,6 +894,7 @@ class MemoryManager:
 
         return {
             "total_memories": total_memories,
+            "total_points": total_memories,
             "collections": collection_stats,
             "working_memory": working_stats,
             "embedding_model": model_info,
@@ -875,6 +903,41 @@ class MemoryManager:
                 "cache_enabled": self.settings.cache_enabled,
             },
         }
+
+    async def get_logical_counts(self) -> dict[str, dict[str, int]]:
+        """Count logical memories per collection, as opposed to physical points.
+
+        A long memory is stored as several chunk points, so ``points_count`` overstates
+        the number of memories. A group whose chunk 0 is missing is reported separately
+        because it cannot be read by its logical ID.
+
+        Returns:
+            ``{collection: {"points", "memories", "incomplete_groups"}}``
+        """
+        counts: dict[str, dict[str, int]] = {}
+        for collection in (t.value for t in MemoryType):
+            if not self.vector_store.collection_exists(collection):
+                continue
+            groups: dict[str, set[int]] = {}
+            points = 0
+            offset = None
+            while True:
+                batch, offset = await self.vector_store.scroll(
+                    collection=collection, limit=256, offset=offset
+                )
+                for r in batch:
+                    points += 1
+                    groups.setdefault(r.payload.get("parent_id", r.id), set()).add(
+                        r.payload.get("chunk_index", 0)
+                    )
+                if not offset:
+                    break
+            counts[collection] = {
+                "points": points,
+                "memories": len(groups),
+                "incomplete_groups": sum(1 for idx in groups.values() if 0 not in idx),
+            }
+        return counts
 
     def set_context(self, key: str, value: Any) -> None:
         """Set working memory context.

@@ -111,15 +111,26 @@ class MemoryConsolidator:
             ]
 
             if similar:
-                # Merge similar memories
-                if not dry_run:
-                    await self._merge_memories(collection, memory, similar)
+                # A duplicate is merged only when it adds nothing to the primary: the
+                # similarity of the first chunk does not prove that two long memories
+                # carry the same text, and the merge does not transfer any content.
+                mergeable = [s for s in similar if self._same_full_content(memory, s)]
+                skipped = len(similar) - len(mergeable)
+                if skipped:
+                    logger.info(
+                        f"Skipped {skipped} similar memories of {parent_id}: "
+                        "full content differs, merging would lose text"
+                    )
 
-                merged_count += len(similar)
-                processed_ids.add(memory.id)
-                processed_ids.update(s.id for s in similar)
+                if mergeable:
+                    if not dry_run:
+                        await self._merge_memories(collection, memory, mergeable)
 
-                logger.debug(f"Merged {len(similar)} memories into {memory.id}")
+                    merged_count += len(mergeable)
+                    processed_ids.add(memory.id)
+                    processed_ids.update(s.id for s in mergeable)
+
+                    logger.debug(f"Merged {len(mergeable)} memories into {memory.id}")
 
         duration = (datetime.now() - start_time).total_seconds()
 
@@ -132,6 +143,39 @@ class MemoryConsolidator:
             dry_run=dry_run,
         )
 
+    @staticmethod
+    def _full_text(point: SearchResult) -> str:
+        """Whole text of the logical memory a point belongs to, whitespace-normalised."""
+        text = point.payload.get("full_content") or point.payload.get("content", "")
+        return " ".join(text.split())
+
+    def _same_full_content(self, primary: SearchResult, duplicate: SearchResult) -> bool:
+        """True when the duplicate's complete text equals the primary's."""
+        return self._full_text(primary) == self._full_text(duplicate)
+
+    async def _delete_logical_memory(self, collection: str, point: SearchResult) -> int:
+        """Delete every point of the logical memory ``point`` belongs to.
+
+        A long memory is a group of chunk points sharing a ``parent_id``. Deleting only
+        the representative point (chunk 0) leaves the other chunks orphaned: the memory
+        becomes unreadable by its logical ID while still showing up in searches.
+        """
+        parent_id = point.payload.get("parent_id", point.id)
+        ids = {point.id}
+        offset = None
+        while True:
+            batch, offset = await self.store.scroll(
+                collection=collection,
+                limit=256,
+                offset=offset,
+                filter_conditions={"parent_id": parent_id},
+            )
+            ids.update(r.id for r in batch)
+            if not offset:
+                break
+        await self.store.delete(collection=collection, ids=sorted(ids))
+        return len(ids)
+
     async def _merge_memories(
         self,
         collection: str,
@@ -139,6 +183,10 @@ class MemoryConsolidator:
         duplicates: list[SearchResult],
     ) -> None:
         """Merge duplicate memories into the primary.
+
+        Callers must only pass duplicates whose full content equals the primary's
+        (see ``_same_full_content``): nothing but tags, importance and access count is
+        carried over, so the duplicate's text must already live in the primary.
 
         Args:
             collection: Collection name
@@ -149,33 +197,52 @@ class MemoryConsolidator:
         all_tags = set(primary.payload.get("tags", []))
         max_importance = primary.payload.get("importance", 0.5)
         total_access = primary.payload.get("access_count", 0)
-        merged_content = [primary.payload.get("content", "")]
 
         for dup in duplicates:
             all_tags.update(dup.payload.get("tags", []))
             max_importance = max(max_importance, dup.payload.get("importance", 0.5))
             total_access += dup.payload.get("access_count", 0)
-            merged_content.append(dup.payload.get("content", ""))
 
-        # Update primary
-        await self.store.update_payload(
-            collection=collection,
-            id=primary.id,
-            payload={
-                "tags": list(all_tags),
-                "importance": max_importance,
-                "access_count": total_access,
-                "merged_from": [d.id for d in duplicates],
-                "merged_at": datetime.now().isoformat(),
-            },
-            merge=True,
+        # Record the LOGICAL ids of what was merged, appended to earlier merges, so the
+        # provenance is not overwritten by the next consolidation.
+        merged_from = list(primary.payload.get("merged_from", []))
+        merged_from.extend(
+            d.payload.get("parent_id", d.id)
+            for d in duplicates
+            if d.payload.get("parent_id", d.id) not in merged_from
         )
 
-        # Delete duplicates
-        await self.store.delete(
-            collection=collection,
-            ids=[d.id for d in duplicates],
-        )
+        # Update every point of the primary group (any chunk may be read back)
+        primary_parent = primary.payload.get("parent_id", primary.id)
+        primary_ids = {primary.id}
+        offset = None
+        while True:
+            batch, offset = await self.store.scroll(
+                collection=collection,
+                limit=256,
+                offset=offset,
+                filter_conditions={"parent_id": primary_parent},
+            )
+            primary_ids.update(r.id for r in batch)
+            if not offset:
+                break
+        for pid in sorted(primary_ids):
+            await self.store.update_payload(
+                collection=collection,
+                id=pid,
+                payload={
+                    "tags": list(all_tags),
+                    "importance": max_importance,
+                    "access_count": total_access,
+                    "merged_from": merged_from,
+                    "merged_at": datetime.now().isoformat(),
+                },
+                merge=True,
+            )
+
+        # Delete duplicates: whole logical memories, never just their chunk 0
+        for dup in duplicates:
+            await self._delete_logical_memory(collection, dup)
 
     async def apply_forgetting(
         self,
