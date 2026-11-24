@@ -494,6 +494,12 @@ class WorkSessionRepository:
         # Parse JSONB pauses
         if isinstance(data.get("pauses"), str):
             data["pauses"] = json.loads(data["pauses"])
+        # A NULL array column (e.g. a dashboard save of empty notes) must not make the
+        # whole session unreadable: every work tool reads sessions through here.
+        if data.get("pauses") is None:
+            data["pauses"] = []
+        if data.get("notes") is None:
+            data["notes"] = []
         return WorkSession(**data)
 
 
